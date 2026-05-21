@@ -1,15 +1,16 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { nanoid } from "nanoid";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { z } from "zod";
 import { config } from "./config.js";
-import { allocateHostPort, enqueueDeployment, getServiceById, removeServiceRuntime, startDeployWorker } from "./deploy.js";
+import { abortDeployment, allocateHostPort, containerNameForService, enqueueDeployment, getServiceById, removeServiceRuntime, startDeployWorker } from "./deploy.js";
 import { db, nowIso } from "./db.js";
 import { githubConnectionStatus, listConnectedRepos, listRepoBranches, listRepoDirectories, repoUrlFromFullName } from "./github-connect.js";
 import { branchFromGitRef, verifyGitHubSignature } from "./github.js";
@@ -66,12 +67,26 @@ const createProjectSchema = z.object({
   description: optionalString
 });
 
+const envSchema = z.object({ key: z.string().trim().regex(/^[A-Z_][A-Z0-9_]*$/i), value: z.string() });
+
 const createServiceSchema = serviceSettingsSchema.extend({
-  name: z.string().trim().min(1)
+  name: z.string().trim().min(1),
+  env: z.array(envSchema).optional().default([])
 });
 
-const updateServiceSchema = serviceSettingsSchema.partial();
-const envSchema = z.object({ key: z.string().trim().regex(/^[A-Z_][A-Z0-9_]*$/i), value: z.string() });
+const updateServiceSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  repoFullName: repoFullNameSchema.nullish(),
+  repoUrl: repoSchema.nullish(),
+  branch: z.string().trim().min(1).optional(),
+  rootDir: optionalRootDir,
+  githubToken: optionalString.nullish(),
+  installCommand: optionalString.nullish(),
+  buildCommand: optionalString.nullish(),
+  startCommand: optionalString.nullish(),
+  staticOutput: optionalString.nullish(),
+  internalPort: z.coerce.number().int().min(1).max(65535).optional()
+});
 const domainSchema = z.object({
   hostname: z.string().trim().toLowerCase().regex(/^[a-z0-9.-]+\.[a-z]{2,}$|^[a-z0-9-]+\.localhost$/)
 });
@@ -83,6 +98,17 @@ const searchSchema = z.object({
 
 function jsonError(message: string, status = 400) {
   return Response.json({ error: message }, { status });
+}
+
+function normalizeEnvValue(value: string) {
+  const trimmed = value.trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 type RuntimeLog = {
@@ -159,7 +185,45 @@ function getServiceSlugSet(projectId: string) {
   );
 }
 
-function publicService(service: Service) {
+function checkPortReachable(port: number, host = "127.0.0.1", timeoutMs = 350) {
+  return new Promise<boolean>((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, host);
+  });
+}
+
+function urlForHostname(hostname: string) {
+  const isLocal =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  return `${isLocal ? "http" : "https"}://${hostname}`;
+}
+
+async function publicService(service: Service) {
+  const localUrl = `http://127.0.0.1:${service.hostPort}`;
+  const shouldProbe = service.status === "active" || service.status === "building";
+  const reachable = shouldProbe ? await checkPortReachable(service.hostPort) : false;
+  const liveStatus = service.status === "active" && !reachable ? "failed" : service.status;
+  const serviceDomains = db.select().from(domains).where(eq(domains.serviceId, service.id)).orderBy(asc(domains.createdAt)).all();
+  const preferredDomain =
+    serviceDomains.find((domain) => domain.status === "active") ??
+    serviceDomains.find((domain) => Boolean(domain.hostname));
+  const primaryUrl = preferredDomain ? urlForHostname(preferredDomain.hostname) : localUrl;
+
   return {
     id: service.id,
     projectId: service.projectId,
@@ -176,15 +240,19 @@ function publicService(service: Service) {
     staticOutput: service.staticOutput,
     internalPort: service.internalPort,
     hostPort: service.hostPort,
-    status: service.status,
+    status: liveStatus,
+    reachable,
+    localUrl,
+    primaryUrl,
     lastDeployedAt: service.lastDeployedAt,
     createdAt: service.createdAt,
     updatedAt: service.updatedAt
   };
 }
 
-function summarizeProject(project: ProjectGroup, projectServices: Service[]) {
-  const statuses = projectServices.map((service) => service.status);
+async function summarizeProject(project: ProjectGroup, projectServices: Service[]) {
+  const hydratedServices = await Promise.all(projectServices.map((service) => publicService(service)));
+  const statuses = hydratedServices.map((service) => service.status);
   const status = statuses.includes("building")
     ? "building"
     : statuses.includes("failed")
@@ -206,7 +274,7 @@ function summarizeProject(project: ProjectGroup, projectServices: Service[]) {
     status,
     serviceCount: projectServices.length,
     lastUpdatedAt,
-    services: projectServices.map((service) => publicService(service))
+    services: hydratedServices
   };
 }
 
@@ -239,6 +307,26 @@ function createServiceRecord(projectId: string, input: z.infer<typeof createServ
   };
 
   db.insert(services).values(service).run();
+  if (input.env.length > 0) {
+    const timestamp = nowIso();
+    const uniqueEnv = new Map<string, string>();
+    for (const entry of input.env) {
+      uniqueEnv.set(entry.key, normalizeEnvValue(entry.value));
+    }
+
+    db.insert(envVars)
+      .values(
+        Array.from(uniqueEnv.entries()).map(([key, value]) => ({
+          id: nanoid(10),
+          serviceId: service.id,
+          key,
+          value,
+          createdAt: timestamp,
+          updatedAt: timestamp
+        }))
+      )
+      .run();
+  }
   return service;
 }
 
@@ -246,7 +334,13 @@ app.get("/api/health", (c) => c.json({ ok: true }));
 
 app.get("/api/system", async (c) => c.json(await getSystemChecks()));
 
-app.get("/api/github/status", (c) => c.json(githubConnectionStatus()));
+app.get("/api/github/status", async (c) => {
+  try {
+    return c.json(await githubConnectionStatus());
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Could not load GitHub status", 503);
+  }
+});
 
 app.get("/api/github/repos", async (c) => {
   try {
@@ -277,17 +371,17 @@ app.get("/api/github/directories", async (c) => {
   }
 
   try {
-    return c.json({ directories: await listRepoDirectories(repoFullName, branch) });
+    return c.json({ directories: await listRepoDirectories(repoFullName, branch, c.req.query("path") ?? "") });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not load directories", 503);
   }
 });
 
-app.get("/api/projects", (c) => {
+app.get("/api/projects", async (c) => {
   const groups = db.select().from(projectGroups).orderBy(desc(projectGroups.updatedAt)).all();
   const serviceRows = db.select().from(services).orderBy(asc(services.name)).all();
 
-  const grouped = groups.map((group) => summarizeProject(group, serviceRows.filter((service) => service.projectId === group.id)));
+  const grouped = await Promise.all(groups.map((group) => summarizeProject(group, serviceRows.filter((service) => service.projectId === group.id))));
   return c.json({ projects: grouped });
 });
 
@@ -309,16 +403,16 @@ app.post("/api/projects", async (c) => {
   };
 
   db.insert(projectGroups).values(project).run();
-  return c.json({ project: summarizeProject(project, []) }, 201);
+  return c.json({ project: await summarizeProject(project, []) }, 201);
 });
 
-app.get("/api/projects/:projectSlug", (c) => {
+app.get("/api/projects/:projectSlug", async (c) => {
   const project = getProjectBySlug(c.req.param("projectSlug"));
   if (!project) {
     return jsonError("Project not found", 404);
   }
 
-  return c.json({ project: summarizeProject(project, getServicesForProject(project.id)) });
+  return c.json({ project: await summarizeProject(project, getServicesForProject(project.id)) });
 });
 
 app.post("/api/projects/:projectId/services", async (c) => {
@@ -334,10 +428,10 @@ app.post("/api/projects/:projectId/services", async (c) => {
 
   const service = createServiceRecord(project.id, body.data);
   db.update(projectGroups).set({ updatedAt: nowIso() }).where(eq(projectGroups.id, project.id)).run();
-  return c.json({ service: publicService(service) }, 201);
+  return c.json({ service: await publicService(service) }, 201);
 });
 
-app.get("/api/services/:serviceId/overview", (c) => {
+app.get("/api/services/:serviceId/overview", async (c) => {
   const service = getServiceById(c.req.param("serviceId"));
   if (!service) {
     return jsonError("Service not found", 404);
@@ -372,9 +466,17 @@ app.get("/api/services/:serviceId/overview", (c) => {
     .orderBy(asc(domains.hostname))
     .all();
 
+  const publicFacingService = await publicService(service);
+  const normalizedDeployments =
+    publicFacingService.status === "failed"
+      ? serviceDeployments.map((deployment) =>
+          deployment.status === "running" ? { ...deployment, status: "failed" } : deployment
+        )
+      : serviceDeployments;
+
   return c.json({
-    service: publicService(service),
-    deployments: serviceDeployments,
+    service: publicFacingService,
+    deployments: normalizedDeployments,
     env: serviceEnv,
     domains: serviceDomains
   });
@@ -391,20 +493,26 @@ app.patch("/api/services/:serviceId", async (c) => {
     return jsonError(body.error.issues[0]?.message ?? "Invalid update");
   }
 
-  const repoFullName = body.data.repoFullName ?? service.repoFullName;
+  const repoFullName = body.data.repoFullName === undefined ? service.repoFullName : body.data.repoFullName;
+  const repoUrl =
+    body.data.repoUrl === undefined
+      ? repoFullName
+        ? repoUrlFromFullName(repoFullName)
+        : service.repoUrl
+      : body.data.repoUrl ?? service.repoUrl;
   db.update(services)
     .set({
       ...body.data,
       repoFullName,
-      repoUrl: body.data.repoUrl ?? (repoFullName ? repoUrlFromFullName(repoFullName) : service.repoUrl),
-      githubToken: body.data.githubToken === undefined ? service.githubToken : body.data.githubToken,
+      repoUrl,
+      githubToken: body.data.githubToken === undefined ? service.githubToken : body.data.githubToken ?? null,
       updatedAt: nowIso()
     })
     .where(eq(services.id, service.id))
     .run();
 
   const updated = getServiceById(service.id);
-  return c.json({ service: updated ? publicService(updated) : null });
+  return c.json({ service: updated ? await publicService(updated) : null });
 });
 
 app.delete("/api/services/:serviceId", async (c) => {
@@ -459,6 +567,16 @@ app.post("/api/services/:serviceId/deployments", (c) => {
     return c.json({ deployment }, 201);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not create deployment", 404);
+  }
+});
+
+app.post("/api/deployments/:deploymentId/abort", (c) => {
+  try {
+    const result = abortDeployment(c.req.param("deploymentId"));
+    return c.json(result, 202);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not abort deployment";
+    return jsonError(message, message === "Deployment not found" ? 404 : 409);
   }
 });
 
@@ -528,15 +646,21 @@ app.get("/api/services/:serviceId/runtime-logs/stream", async (c) => {
     return jsonError("Service not found", 404);
   }
 
-  const containerName = `deploy-${service.id.toLowerCase()}`;
+  const containerName = containerNameForService(service.id);
   const snapshot = await readContainerLogs(containerName);
   const encoder = new TextEncoder();
 
   return new Response(
     new ReadableStream({
       start(controller) {
+        let closed = false;
         const write = (event: string, data: unknown) => {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            closed = true;
+          }
         };
 
         write("snapshot", snapshot);
@@ -567,9 +691,15 @@ app.get("/api/services/:serviceId/runtime-logs/stream", async (c) => {
         const ping = setInterval(() => write("ping", { t: Date.now() }), 15000);
 
         c.req.raw.signal.addEventListener("abort", () => {
+          if (closed) return;
+          closed = true;
           clearInterval(ping);
           child.kill("SIGTERM");
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // Already closed.
+          }
         });
       }
     }),
@@ -595,11 +725,12 @@ app.post("/api/services/:serviceId/env", async (c) => {
   }
 
   const timestamp = nowIso();
+  const normalizedValue = normalizeEnvValue(body.data.value);
   db.insert(envVars)
-    .values({ id: nanoid(10), serviceId: service.id, key: body.data.key, value: body.data.value, createdAt: timestamp, updatedAt: timestamp })
+    .values({ id: nanoid(10), serviceId: service.id, key: body.data.key, value: normalizedValue, createdAt: timestamp, updatedAt: timestamp })
     .onConflictDoUpdate({
       target: [envVars.serviceId, envVars.key],
-      set: { value: body.data.value, updatedAt: timestamp }
+      set: { value: normalizedValue, updatedAt: timestamp }
     })
     .run();
 
@@ -637,14 +768,12 @@ app.delete("/api/services/:serviceId/domains/:domainId", async (c) => {
   return c.json({ ok: true, caddy });
 });
 
-app.post("/api/github/webhook/:serviceId", async (c) => {
-  const service = getServiceById(c.req.param("serviceId"));
-  if (!service) {
-    return jsonError("Service not found", 404);
+app.post("/api/github/app/webhook", async (c) => {
+  if (!config.githubWebhookSecret) {
+    return jsonError("GitHub webhook secret is not configured", 503);
   }
-
   const rawBody = await c.req.text();
-  if (!verifyGitHubSignature(rawBody, c.req.header("x-hub-signature-256"), service.webhookSecret)) {
+  if (!verifyGitHubSignature(rawBody, c.req.header("x-hub-signature-256"), config.githubWebhookSecret)) {
     return jsonError("Invalid webhook signature", 401);
   }
 
@@ -657,14 +786,31 @@ app.post("/api/github/webhook/:serviceId", async (c) => {
     return c.json({ ok: true, ignored: event });
   }
 
-  const payload = JSON.parse(rawBody) as { ref?: string; after?: string };
+  const payload = JSON.parse(rawBody) as {
+    after?: string;
+    ref?: string;
+    repository?: {
+      full_name?: string;
+    };
+  };
   const branch = branchFromGitRef(payload.ref);
-  if (branch !== service.branch) {
-    return c.json({ ok: true, ignored: branch });
+  const repoFullName = payload.repository?.full_name;
+  if (!branch || !repoFullName) {
+    return c.json({ ok: true, ignored: "missing ref or repository" });
   }
 
-  const deployment = enqueueDeployment(service.id, { trigger: "github", commitSha: payload.after });
-  return c.json({ ok: true, deployment });
+  const matchingServices = db
+    .select()
+    .from(services)
+    .where(and(eq(services.repoFullName, repoFullName), eq(services.branch, branch)))
+    .all();
+
+  if (matchingServices.length === 0) {
+    return c.json({ ok: true, ignored: `${repoFullName}@${branch}` });
+  }
+
+  const queued = matchingServices.map((service) => enqueueDeployment(service.id, { trigger: "github", commitSha: payload.after }));
+  return c.json({ ok: true, queued: queued.map((deployment) => deployment.id) });
 });
 
 app.get("/api/search", (c) => {
