@@ -6,7 +6,7 @@ A self-hostable deployment control plane MVP. It connects a GitHub repo, builds 
 
 - Project creation from a Git repository URL.
 - Manual deploys.
-- GitHub push webhooks per project.
+- GitHub App-based repo connect and push-triggered deploys.
 - Railpack build orchestration.
 - Docker runtime orchestration.
 - Live deployment log streaming.
@@ -91,21 +91,34 @@ Use a real domain only if it resolves back to your Mac and inbound ports are rea
 
 For `.localhost` development domains, add names like `hono.localhost` in the dashboard. Deploy writes these as HTTP-only Caddy routes, so `http://hono.localhost` proxies to the mapped app container without needing certificates or `/etc/hosts` changes.
 
-## GitHub Webhook
+## GitHub App Setup
 
-Each project shows:
+Create a GitHub App and give it these repository permissions:
 
-- Webhook URL
-- Webhook secret
+- `Contents: Read`
+- `Metadata: Read`
 
-In GitHub, create a repository webhook:
+Subscribe the app to the `Push` webhook event.
 
-- Payload URL: the dashboard value
-- Content type: `application/json`
-- Secret: the dashboard value
-- Events: `push`
+Then set these in `.env`:
 
-Pushes to the configured branch enqueue a deployment.
+```bash
+GITHUB_APP_ID=1234567
+GITHUB_APP_CLIENT_ID=Iv23li...
+GITHUB_APP_SLUG=your-app-slug
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+GITHUB_WEBHOOK_SECRET=super-secret-value
+```
+
+Point the app's webhook URL at:
+
+```txt
+https://YOUR_PUBLIC_HOST/api/github/app/webhook
+```
+
+After that, install the app on the repos you want to deploy. The new-service modal will browse installed repositories, branches, and directories automatically. Pushes to the configured branch will enqueue deployments for every matching service.
+
+For a temporary fallback, the server still accepts `GITHUB_ACCESS_TOKEN`, but the preferred path is the GitHub App flow.
 
 ## Custom Domains
 
