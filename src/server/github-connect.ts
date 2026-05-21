@@ -1,3 +1,4 @@
+import { createPrivateKey, sign } from "node:crypto";
 import { config } from "./config.js";
 
 type GitHubRepo = {
@@ -18,22 +19,87 @@ type GitHubTreeEntry = {
   type: "blob" | "tree";
 };
 
-function requireGitHubToken() {
-  if (!config.githubAccessToken) {
-    throw new Error("GitHub is not connected. Set GITHUB_ACCESS_TOKEN on the server.");
-  }
+type GitHubContentFile = {
+  content: string;
+  encoding: string;
+  type: "file";
+};
+
+type GitHubInstallation = {
+  id: number;
+  account: {
+    login: string;
+  };
+  target_type: "Organization" | "User";
+};
+
+type InstallationTokenCacheEntry = {
+  expiresAt: number;
+  token: string;
+};
+
+type GitHubSearchResponse = {
+  items: GitHubRepo[];
+};
+
+type GitHubStatus = {
+  appConfigured: boolean;
+  connected: boolean;
+  installationCount: number;
+  installed: boolean;
+  installUrl: null | string;
+  mode: "app" | "token" | "none";
+};
+
+const installationTokenCache = new Map<number, InstallationTokenCacheEntry>();
+
+function hasGitHubAppConfig() {
+  return Boolean(config.githubAppId && config.githubAppPrivateKey);
 }
 
-async function githubRequest<T>(path: string): Promise<T> {
-  requireGitHubToken();
+function base64Url(value: string | Buffer) {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
 
+function getGitHubAppInstallUrl() {
+  if (!config.githubAppSlug) return null;
+  return `https://github.com/apps/${config.githubAppSlug}/installations/new`;
+}
+
+function createGitHubAppJwt() {
+  if (!hasGitHubAppConfig()) {
+    throw new Error("GitHub App is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY on the server.");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = base64Url(
+    JSON.stringify({
+      iat: now - 60,
+      exp: now + 9 * 60,
+      iss: config.githubAppClientId || config.githubAppId
+    })
+  );
+  const unsigned = `${header}.${payload}`;
+  const signature = sign("RSA-SHA256", Buffer.from(unsigned), createPrivateKey(config.githubAppPrivateKey));
+  return `${unsigned}.${base64Url(signature)}`;
+}
+
+async function githubRequest<T>(path: string, options: { body?: unknown; token?: string; tokenKind?: "bearer" | "token" } = {}): Promise<T> {
   const response = await fetch(`https://api.github.com${path}`, {
+    method: options.body ? "POST" : "GET",
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${config.githubAccessToken}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "deploy-control-plane"
-    }
+      Authorization: `${options.tokenKind === "token" ? "token" : "Bearer"} ${options.token ?? config.githubAccessToken}`,
+      "Content-Type": "application/json",
+      "User-Agent": "deploy-control-plane",
+      "X-GitHub-Api-Version": "2022-11-28"
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined
   });
 
   if (!response.ok) {
@@ -41,12 +107,158 @@ async function githubRequest<T>(path: string): Promise<T> {
     throw new Error(`GitHub request failed (${response.status}): ${body || response.statusText}`);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }
 
-function compareDirectories(a: string, b: string) {
-  const depth = (value: string) => (value ? value.split("/").length : 0);
-  return depth(a) - depth(b) || a.localeCompare(b);
+async function githubAppRequest<T>(path: string, options: { body?: unknown } = {}) {
+  return githubRequest<T>(path, {
+    body: options.body,
+    token: createGitHubAppJwt(),
+    tokenKind: "bearer"
+  });
+}
+
+async function getInstallationToken(installationId: number) {
+  const cached = installationTokenCache.get(installationId);
+  if (cached && cached.expiresAt > Date.now() + 60_000) {
+    return cached.token;
+  }
+
+  const result = await githubAppRequest<{ expires_at: string; token: string }>(`/app/installations/${installationId}/access_tokens`, {
+    body: {}
+  });
+  installationTokenCache.set(installationId, {
+    token: result.token,
+    expiresAt: new Date(result.expires_at).getTime()
+  });
+  return result.token;
+}
+
+async function getInstallationForRepo(repoFullName: string) {
+  const [owner, repo] = repoFullName.split("/");
+  if (!owner || !repo) {
+    throw new Error("Invalid repository name");
+  }
+
+  return githubAppRequest<{ id: number }>(`/repos/${owner}/${repo}/installation`);
+}
+
+async function getInstallationTokenForRepo(repoFullName: string) {
+  const installation = await getInstallationForRepo(repoFullName);
+  return getInstallationToken(installation.id);
+}
+
+async function listReposViaApp(query?: string) {
+  const installations = await githubAppRequest<GitHubInstallation[]>("/app/installations");
+  const normalizedQuery = query?.trim().toLowerCase();
+  const repos: GitHubRepo[] = [];
+  const seen = new Set<number>();
+
+  for (const installation of installations) {
+    const token = await getInstallationToken(installation.id);
+    const response = normalizedQuery
+      ? await githubRequest<GitHubSearchResponse>(
+          `/search/repositories?per_page=100&q=${encodeURIComponent(buildInstallationSearchQuery(query ?? "", installation))}`,
+          {
+            token,
+            tokenKind: "token"
+          }
+        )
+      : await githubRequest<{ repositories: GitHubRepo[] }>("/installation/repositories?per_page=100", {
+          token,
+          tokenKind: "token"
+        });
+
+    const candidates = "items" in response ? response.items : response.repositories;
+
+    for (const repo of candidates) {
+      if (seen.has(repo.id)) continue;
+      seen.add(repo.id);
+
+      if (
+        normalizedQuery &&
+        !repo.full_name.toLowerCase().includes(normalizedQuery) &&
+        !repo.name.toLowerCase().includes(normalizedQuery)
+      ) {
+        continue;
+      }
+
+      repos.push(repo);
+    }
+  }
+
+  return repos;
+}
+
+async function listReposViaToken(query?: string) {
+  if (!config.githubAccessToken) {
+    throw new Error("GitHub is not connected. Configure a GitHub App or set GITHUB_ACCESS_TOKEN on the server.");
+  }
+
+  const repos = query?.trim()
+    ? (
+        await githubRequest<GitHubSearchResponse>(`/search/repositories?per_page=100&q=${encodeURIComponent(query)}`, {
+          tokenKind: "bearer"
+        })
+      ).items
+    : await githubRequest<GitHubRepo[]>("/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member", {
+        tokenKind: "bearer"
+      });
+  const normalizedQuery = query?.trim().toLowerCase();
+
+  return repos.filter(
+    (repo) => !normalizedQuery || repo.full_name.toLowerCase().includes(normalizedQuery) || repo.name.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function buildInstallationSearchQuery(query: string, installation: GitHubInstallation) {
+  const normalized = query.trim();
+  const qualifier = installation.target_type === "Organization" ? `org:${installation.account.login}` : `user:${installation.account.login}`;
+  const repoNameQuery = normalized.includes("/") ? normalized.split("/").at(-1) ?? normalized : normalized;
+  return `${repoNameQuery} ${qualifier}`.trim();
+}
+
+async function getRepoToken(repoFullName: string) {
+  if (hasGitHubAppConfig()) {
+    return getInstallationTokenForRepo(repoFullName);
+  }
+
+  if (!config.githubAccessToken) {
+    throw new Error("GitHub is not connected. Configure a GitHub App or set GITHUB_ACCESS_TOKEN on the server.");
+  }
+
+  return config.githubAccessToken;
+}
+
+async function githubRepoRequest<T>(repoFullName: string, path: string): Promise<T> {
+  const token = await getRepoToken(repoFullName);
+  return githubRequest<T>(path, {
+    token,
+    tokenKind: "token"
+  });
+}
+
+export async function readRepoFile(repoFullName: string, branch: string, filePath: string) {
+  const [owner, repo] = repoFullName.split("/");
+  const normalizedPath = filePath.trim().replace(/^\/+/, "");
+  if (!owner || !repo || !normalizedPath) return null;
+
+  try {
+    const response = await githubRepoRequest<GitHubContentFile>(
+      repoFullName,
+      `/repos/${owner}/${repo}/contents/${normalizedPath}?ref=${encodeURIComponent(branch)}`
+    );
+    if (response.type !== "file" || response.encoding !== "base64") {
+      return null;
+    }
+    return Buffer.from(response.content.replace(/\n/g, ""), "base64").toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 export function repoUrlFromFullName(fullName: string) {
@@ -54,11 +266,9 @@ export function repoUrlFromFullName(fullName: string) {
 }
 
 export async function listConnectedRepos(query?: string) {
-  const repos = await githubRequest<GitHubRepo[]>("/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member");
-  const normalizedQuery = query?.trim().toLowerCase();
+  const repos = hasGitHubAppConfig() ? await listReposViaApp(query) : await listReposViaToken(query);
 
   return repos
-    .filter((repo) => !normalizedQuery || repo.full_name.toLowerCase().includes(normalizedQuery) || repo.name.toLowerCase().includes(normalizedQuery))
     .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
     .map((repo) => ({
       id: String(repo.id),
@@ -73,38 +283,112 @@ export async function listConnectedRepos(query?: string) {
 
 export async function listRepoBranches(repoFullName: string) {
   const [owner, repo] = repoFullName.split("/");
-  const branches = await githubRequest<GitHubBranch[]>(`/repos/${owner}/${repo}/branches?per_page=100`);
+  const branches = await githubRepoRequest<GitHubBranch[]>(repoFullName, `/repos/${owner}/${repo}/branches?per_page=100`);
   return branches.map((branch) => branch.name);
 }
 
-export async function listRepoDirectories(repoFullName: string, branch: string) {
+export async function listRepoDirectories(repoFullName: string, branch: string, parentPath = "") {
   const [owner, repo] = repoFullName.split("/");
-  const branchInfo = await githubRequest<{ commit: { sha: string } }>(`/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`);
-  const tree = await githubRequest<{ tree: GitHubTreeEntry[] }>(`/repos/${owner}/${repo}/git/trees/${branchInfo.commit.sha}?recursive=1`);
+  const branchInfo = await githubRepoRequest<{ commit: { sha: string } }>(
+    repoFullName,
+    `/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}`
+  );
+  const tree = await githubRepoRequest<{ tree: GitHubTreeEntry[] }>(
+    repoFullName,
+    `/repos/${owner}/${repo}/git/trees/${branchInfo.commit.sha}?recursive=1`
+  );
 
-  const directories = new Set<string>([""]);
+  const normalizedParent = parentPath.trim().replace(/^\/+|\/+$/g, "");
+  const children = new Map<string, { path: string; name: string; depth: number; hasChildren: boolean }>();
+
   for (const entry of tree.tree) {
-    if (entry.type === "tree") {
-      directories.add(entry.path);
+    const entryPath = entry.path.trim().replace(/^\/+|\/+$/g, "");
+    if (!entryPath) continue;
+
+    if (normalizedParent) {
+      if (!entryPath.startsWith(`${normalizedParent}/`)) continue;
+      const remainder = entryPath.slice(normalizedParent.length + 1);
+      if (!remainder) continue;
+      const isDirectoryChild = remainder.includes("/") || entry.type === "tree";
+      if (!isDirectoryChild) continue;
+      const nextSegment = remainder.split("/")[0];
+      const childPath = `${normalizedParent}/${nextSegment}`;
+      const hasChildren = remainder.includes("/") || entry.type === "tree";
+      const depth = childPath.split("/").length;
+      const existing = children.get(childPath);
+      children.set(childPath, {
+        path: childPath,
+        name: nextSegment,
+        depth,
+        hasChildren: existing?.hasChildren || hasChildren
+      });
       continue;
     }
 
-    const parts = entry.path.split("/");
-    parts.pop();
-    if (parts.length > 0) {
-      directories.add(parts.join("/"));
-    }
+    const isDirectoryChild = entryPath.includes("/") || entry.type === "tree";
+    if (!isDirectoryChild) continue;
+    const nextSegment = entryPath.split("/")[0];
+    const childPath = nextSegment;
+    const hasChildren = entryPath.includes("/") || entry.type === "tree";
+    const existing = children.get(childPath);
+    children.set(childPath, {
+      path: childPath,
+      name: nextSegment,
+      depth: 1,
+      hasChildren: existing?.hasChildren || hasChildren
+    });
   }
 
-  return [...directories].sort(compareDirectories).map((path) => ({
-    path,
-    name: path ? path.split("/").at(-1) ?? path : "Repository root",
-    depth: path ? path.split("/").length : 0
-  }));
+  return [...children.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-export function githubConnectionStatus() {
+export async function getCloneTokenForRepo(repoFullName: string) {
+  if (hasGitHubAppConfig()) {
+    return getInstallationTokenForRepo(repoFullName);
+  }
+
+  return config.githubAccessToken || null;
+}
+
+async function getAppInstallationCount() {
+  if (!hasGitHubAppConfig()) {
+    return 0;
+  }
+
+  const installations = await githubAppRequest<GitHubInstallation[]>("/app/installations");
+  return installations.length;
+}
+
+export async function githubConnectionStatus(): Promise<GitHubStatus> {
+  if (hasGitHubAppConfig()) {
+    const installationCount = await getAppInstallationCount();
+    return {
+      appConfigured: true,
+      connected: installationCount > 0,
+      installationCount,
+      installed: installationCount > 0,
+      mode: "app",
+      installUrl: getGitHubAppInstallUrl()
+    };
+  }
+
+  if (config.githubAccessToken) {
+    return {
+      appConfigured: false,
+      connected: true,
+      installationCount: 0,
+      installed: true,
+      mode: "token",
+      installUrl: null
+    };
+  }
+
   return {
-    connected: Boolean(config.githubAccessToken)
+    appConfigured: false,
+    connected: false,
+    installationCount: 0,
+    installed: false,
+    mode: "none",
+    installUrl: getGitHubAppInstallUrl()
   };
 }
