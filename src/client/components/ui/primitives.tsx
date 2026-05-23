@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
+import type { Framework } from "../../api";
 
 export function AppIcon({ icon, className = "", size = 18 }: { icon: unknown; className?: string; size?: number }) {
   return <HugeiconsIcon icon={icon as never} size={size} strokeWidth={1.7} className={className} />;
@@ -30,7 +31,8 @@ export function chipClass(active: boolean) {
 }
 
 export function statusClass(status: string) {
-  if (status === "active" || status === "running") return "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  if (status === "active" || status === "running" || status === "deployed") return "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  if (status === "crashed") return "border border-orange-500/30 bg-orange-500/10 text-orange-300";
   if (status === "failed") return "border border-rose-500/30 bg-rose-500/10 text-rose-300";
   if (status === "aborted") return "border border-zinc-600 bg-zinc-800/80 text-zinc-200";
   if (status === "degraded") return "border border-orange-500/30 bg-orange-500/10 text-orange-300";
@@ -39,15 +41,17 @@ export function statusClass(status: string) {
 }
 
 export function StatusPill({ status }: { status: string }) {
-  return <span className={`px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] ${statusClass(status)}`}>{status}</span>;
+  const label = status === "deployed" ? "deployed" : status;
+  return <span className={`px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] ${statusClass(status)}`}>{label}</span>;
 }
 
 export function deploymentCardClass(status: string, selected: boolean) {
   if (selected) {
+    if (status === "crashed") return "border-orange-500/40 bg-orange-950/30 text-orange-100";
     if (status === "failed") return "border-rose-500/40 bg-rose-950/35 text-rose-100";
     if (status === "aborted") return "border-zinc-600 bg-zinc-800/90 text-zinc-100";
     if (status === "building" || status === "queued") return "border-amber-500/40 bg-amber-950/25 text-amber-100";
-    if (status === "active" || status === "running") return "border-emerald-500/35 bg-emerald-950/25 text-emerald-100";
+    if (status === "active" || status === "running" || status === "deployed") return "border-emerald-500/35 bg-emerald-950/25 text-emerald-100";
     if (status === "superseded") return "border-zinc-700 bg-zinc-900 text-zinc-100";
     return "border-[#4FB8B2]/35 bg-[#4FB8B2]/10 text-zinc-50";
   }
@@ -93,6 +97,40 @@ export function SectionTitle({ icon, title, meta }: { icon: unknown; title: stri
 
 export function BrowserIconFallback({ className = "", size = 17 }: { className?: string; size?: number }) {
   return <AppIcon icon={Globe02Icon} size={size} className={className} />;
+}
+
+export function FrameworkMark({
+  framework,
+  fallback,
+  size = 18
+}: {
+  framework: Framework | null;
+  fallback?: ReactNode;
+  size?: number;
+}) {
+  if (framework?.logoUrl) {
+    return (
+      <img
+        src={framework.logoUrl}
+        alt={framework.name}
+        style={{ width: size, height: size }}
+        className="object-contain shrink-0"
+      />
+    );
+  }
+
+  return <>{fallback ?? <BrowserIconFallback size={size} />}</>;
+}
+
+export function FrameworkBadge({ framework, fallbackLabel = "Service" }: { framework: Framework | null; fallbackLabel?: string }) {
+  return (
+    <div className="inline-flex items-center gap-2 border border-zinc-800 bg-zinc-900/50 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+      <div className="grid h-3.5 w-3.5 place-items-center overflow-hidden">
+        <FrameworkMark framework={framework} size={14} fallback={<BrowserIconFallback size={14} />} />
+      </div>
+      {framework?.name ?? fallbackLabel}
+    </div>
+  );
 }
 
 export function InfoRow({ icon, label }: { icon: unknown | ((props: { className?: string; size?: number }) => ReactNode); label: string }) {
