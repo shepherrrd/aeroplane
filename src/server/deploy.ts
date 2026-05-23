@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ChildProcess, spawn } from "node:child_process";
 import net from "node:net";
@@ -236,6 +236,46 @@ function createCustomDockerfile({
   return `${lines.join("\n")}\n`;
 }
 
+function packageManagerFromPackageJson(sourceDir: string) {
+  const packageJsonPath = join(sourceDir, "package.json");
+  if (!existsSync(packageJsonPath)) return null;
+
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { packageManager?: string };
+    const packageManager = packageJson.packageManager?.split("@")[0];
+    if (packageManager === "bun" || packageManager === "pnpm" || packageManager === "yarn" || packageManager === "npm") {
+      return packageManager;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function detectPackageManager(sourceDir: string, commands: string[]) {
+  if (commands.some((command) => /\bbun\b/.test(command)) || existsSync(join(sourceDir, "bun.lock")) || existsSync(join(sourceDir, "bun.lockb"))) {
+    return "bun";
+  }
+
+  const packageManager = packageManagerFromPackageJson(sourceDir);
+  if (packageManager) return packageManager;
+
+  if (existsSync(join(sourceDir, "pnpm-lock.yaml"))) return "pnpm";
+  if (existsSync(join(sourceDir, "yarn.lock"))) return "yarn";
+  return "npm";
+}
+
+function defaultInstallCommand(sourceDir: string, packageManager: string) {
+  if (!existsSync(join(sourceDir, "package.json"))) return "";
+
+  if (packageManager === "bun") return "bun install --frozen-lockfile";
+  if (packageManager === "pnpm") return "corepack enable && pnpm install --frozen-lockfile";
+  if (packageManager === "yarn") return "corepack enable && yarn install --immutable";
+  if (existsSync(join(sourceDir, "package-lock.json")) || existsSync(join(sourceDir, "npm-shrinkwrap.json"))) return "npm ci";
+  return "npm install";
+}
+
 function getEnvForService(serviceId: string) {
   const rows = db.select().from(envVars).where(eq(envVars.serviceId, serviceId)).all();
   return Object.fromEntries(rows.map((row) => [row.key, normalizeEnvValue(row.value)]));
@@ -381,6 +421,23 @@ async function exportStaticSiteFromImage(deployment: Deployment, service: Servic
   if (!existsSync(staticDir)) {
     throw new Error(`Static output directory ${imagePath} could not be exported`);
   }
+
+  if (!existsSync(join(staticDir, "index.html"))) {
+    for (const nestedDir of ["client", "browser", "public"]) {
+      const candidateDir = join(staticDir, nestedDir);
+      if (!existsSync(join(candidateDir, "index.html"))) continue;
+
+      for (const entry of readdirSync(candidateDir)) {
+        cpSync(join(candidateDir, entry), join(staticDir, entry), { recursive: true });
+      }
+      rmSync(candidateDir, { recursive: true, force: true });
+      break;
+    }
+  }
+
+  if (!existsSync(join(staticDir, "index.html"))) {
+    throw new Error(`Static output ${imagePath} does not contain index.html. This looks like a server-rendered build, not a static site.`);
+  }
 }
 
 export function enqueueDeployment(serviceId: string, options: EnqueueOptions) {
@@ -410,15 +467,77 @@ export function enqueueDeployment(serviceId: string, options: EnqueueOptions) {
 
 async function runDeployment(deployment: Deployment, service: Service) {
   const startedAt = now();
+  const isDatabase = service.repoUrl === "database" || (service.repoFullName?.startsWith("database:") ?? false);
+  const containerName = containerNameForService(service.id);
+  const env = getEnvForService(service.id);
+  const secrets = [...Object.values(env)].filter(Boolean);
+
+  if (isDatabase) {
+    const dbType = service.repoFullName?.split(":")[1] || "postgres";
+    const officialImage =
+      dbType === "postgres"
+        ? "postgres:15-alpine"
+        : dbType === "mysql"
+          ? "mysql:8"
+          : dbType === "redis"
+            ? "redis:7-alpine"
+            : dbType === "mongodb"
+              ? "mongo:6"
+              : dbType === "clickhouse"
+                ? "clickhouse/clickhouse-server:latest"
+                : "postgres:15-alpine";
+
+    db.update(deployments)
+      .set({ status: "building", startedAt, imageTag: officialImage, containerName })
+      .where(eq(deployments.id, deployment.id))
+      .run();
+    db.update(services).set({ status: "building", updatedAt: now() }).where(eq(services.id, service.id)).run();
+
+    appendDeploymentLog(deployment.id, `Provisioning database service ${service.name} (${dbType})...`);
+
+    try {
+      appendDeploymentLog(deployment.id, `Pulling official image: ${officialImage}`);
+      await runCommand("docker", ["pull", officialImage], deployment.id);
+
+      await runCommand("docker", ["rm", "-f", containerName], deployment.id).catch(() => {
+        appendDeploymentLog(deployment.id, `No previous container named ${containerName} was running.`);
+      });
+
+      const dockerArgs = ["run", "-d", "--restart", "unless-stopped", "--name", containerName, "-p", `127.0.0.1:${service.hostPort}:${service.internalPort}`];
+      if (dbType === "clickhouse") {
+        dockerArgs.push("--ulimit", "nofile=262144:262144");
+      }
+      for (const [key, value] of Object.entries(env)) {
+        dockerArgs.push("--env", `${key}=${value}`);
+      }
+      dockerArgs.push(officialImage);
+
+      appendDeploymentLog(deployment.id, `Running container mapping host port ${service.hostPort} to internal port ${service.internalPort}...`);
+      await runCommand("docker", dockerArgs, deployment.id, { redact: secrets });
+
+      const deployedAt = now();
+      supersedeRunningDeployments(service.id);
+      db.update(deployments).set({ status: "running", finishedAt: deployedAt }).where(eq(deployments.id, deployment.id)).run();
+      db.update(services)
+        .set({ status: "active", lastDeployedAt: deployedAt, updatedAt: deployedAt })
+        .where(eq(services.id, service.id))
+        .run();
+      appendDeploymentLog(deployment.id, `Database successfully provisioned and listening on 127.0.0.1:${service.hostPort}!`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown database deployment error";
+      appendDeploymentLog(deployment.id, `Database provisioning failed: ${message}`, "stderr", secrets);
+      db.update(deployments).set({ status: "failed", finishedAt: now() }).where(eq(deployments.id, deployment.id)).run();
+      db.update(services).set({ status: "failed", updatedAt: now() }).where(eq(services.id, service.id)).run();
+    }
+    return;
+  }
+
   const imageRepository = `deploy-${safeSlug(service.name)}-${safeDockerIdentifier(service.id, "service")}`;
   const imageVersion = safeDockerIdentifier(deployment.id, "latest");
   const imageTag = `${imageRepository}:${imageVersion}`;
-  const containerName = containerNameForService(service.id);
   const buildRoot = resolve(config.dataDir, "builds", deployment.id);
   const sourceDir = join(buildRoot, "source");
   const appDir = service.rootDir ? join(sourceDir, service.rootDir) : sourceDir;
-  const env = getEnvForService(service.id);
-  const secrets = [...Object.values(env)].filter(Boolean);
 
   rmSync(buildRoot, { recursive: true, force: true });
   mkdirSync(buildRoot, { recursive: true });
@@ -462,13 +581,15 @@ async function runDeployment(deployment: Deployment, service: Service) {
       await runCommand("git", ["checkout", deployment.commitSha], deployment.id, { cwd: sourceDir });
     }
 
-    const installCommand = service.installCommand ?? "";
+    const savedInstallCommand = service.installCommand ?? "";
     const buildCommand = service.buildCommand ?? "";
     const startCommand = service.startCommand ?? "";
-  const hasCustomCommands = Boolean(installCommand || buildCommand || startCommand);
-  const looksLikeBunProject = [installCommand, buildCommand, startCommand].some((command) => /\bbun\b/.test(command));
-  const customDockerfilePath = join(buildRoot, "Dockerfile.custom");
-  const isStaticService = Boolean(service.staticOutput?.trim());
+    const packageManager = detectPackageManager(sourceDir, [savedInstallCommand, buildCommand, startCommand]);
+    const installCommand = savedInstallCommand || (buildCommand ? defaultInstallCommand(sourceDir, packageManager) : "");
+    const hasCustomCommands = Boolean(installCommand || buildCommand || startCommand);
+    const looksLikeBunProject = packageManager === "bun";
+    const customDockerfilePath = join(buildRoot, "Dockerfile.custom");
+    const isStaticService = Boolean(service.staticOutput?.trim());
 
     const railpackEnv: Record<string, string> = {
       ...env,
@@ -492,8 +613,10 @@ async function runDeployment(deployment: Deployment, service: Service) {
       }
     });
 
-    if (installCommand) {
+    if (savedInstallCommand) {
       appendDeploymentLog(deployment.id, `Using custom install command: ${installCommand}`, "system", secrets);
+    } else if (installCommand) {
+      appendDeploymentLog(deployment.id, `Using auto install command: ${installCommand}`, "system", secrets);
     }
     if (buildCommand) {
       appendDeploymentLog(deployment.id, `Using custom build command: ${buildCommand}`, "system", secrets);
