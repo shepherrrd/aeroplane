@@ -12,6 +12,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { abortDeployment, allocateHostPort, containerNameForService, enqueueDeployment, getServiceById, removeServiceRuntime, startDeployWorker } from "./deploy.js";
 import { db, nowIso } from "./db.js";
+import { detectFramework } from "./frameworks.js";
 import { githubConnectionStatus, listConnectedRepos, listRepoBranches, listRepoDirectories, repoUrlFromFullName } from "./github-connect.js";
 import { branchFromGitRef, verifyGitHubSignature } from "./github.js";
 import { subscribeToDeploymentLogs } from "./logBus.js";
@@ -41,11 +42,15 @@ const optionalRootDir = z
   .optional()
   .transform((value) => (value ? value.replace(/^\/+|\/+$/g, "") : undefined))
   .refine((value) => value === undefined || !value.split("/").includes(".."), { message: "Invalid directory path" });
-const repoSchema = z.string().trim().min(1).refine((value) => value.startsWith("https://") || value.startsWith("git@"), {
-  message: "Use an HTTPS or SSH Git URL"
+const repoSchema = z.string().trim().min(1).refine((value) => {
+  return value.startsWith("https://") || value.startsWith("git@") || value === "database";
+}, {
+  message: "Use an HTTPS or SSH Git URL, or database"
 });
-const repoFullNameSchema = z.string().trim().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, {
-  message: "Choose a GitHub repository"
+const repoFullNameSchema = z.string().trim().refine((value) => {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) || value.startsWith("database:");
+}, {
+  message: "Choose a GitHub repository or database engine"
 });
 
 const serviceSettingsSchema = z.object({
@@ -65,6 +70,11 @@ const serviceSettingsSchema = z.object({
 const createProjectSchema = z.object({
   name: z.string().trim().min(1),
   description: optionalString
+});
+
+const updateProjectSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  description: optionalString.nullish()
 });
 
 const envSchema = z.object({ key: z.string().trim().regex(/^[A-Z_][A-Z0-9_]*$/i), value: z.string() });
@@ -215,14 +225,23 @@ function urlForHostname(hostname: string) {
 
 async function publicService(service: Service) {
   const localUrl = `http://127.0.0.1:${service.hostPort}`;
+  const latestDeployment = db
+    .select({ status: deployments.status })
+    .from(deployments)
+    .where(eq(deployments.serviceId, service.id))
+    .orderBy(desc(deployments.createdAt))
+    .limit(1)
+    .get();
   const shouldProbe = service.status === "active" || service.status === "building";
   const reachable = shouldProbe ? await checkPortReachable(service.hostPort) : false;
-  const liveStatus = service.status === "active" && !reachable ? "failed" : service.status;
+  const latestDeploymentIsActive = latestDeployment?.status === "queued" || latestDeployment?.status === "building";
+  const liveStatus = service.status === "active" && !reachable && !latestDeploymentIsActive ? "crashed" : service.status;
   const serviceDomains = db.select().from(domains).where(eq(domains.serviceId, service.id)).orderBy(asc(domains.createdAt)).all();
   const preferredDomain =
     serviceDomains.find((domain) => domain.status === "active") ??
     serviceDomains.find((domain) => Boolean(domain.hostname));
   const primaryUrl = preferredDomain ? urlForHostname(preferredDomain.hostname) : localUrl;
+  const framework = await detectFramework(service.repoFullName, service.branch, service.rootDir);
 
   return {
     id: service.id,
@@ -244,6 +263,7 @@ async function publicService(service: Service) {
     reachable,
     localUrl,
     primaryUrl,
+    framework,
     lastDeployedAt: service.lastDeployedAt,
     createdAt: service.createdAt,
     updatedAt: service.updatedAt
@@ -255,7 +275,7 @@ async function summarizeProject(project: ProjectGroup, projectServices: Service[
   const statuses = hydratedServices.map((service) => service.status);
   const status = statuses.includes("building")
     ? "building"
-    : statuses.includes("failed")
+    : statuses.includes("failed") || statuses.includes("crashed")
       ? "degraded"
       : statuses.every((value) => value === "active")
         ? "active"
@@ -327,7 +347,86 @@ function createServiceRecord(projectId: string, input: z.infer<typeof createServ
       )
       .run();
   }
+
+  syncDatabaseUrlEnvVar(service.id);
+
   return service;
+}
+
+function syncDatabaseUrlEnvVar(serviceId: string) {
+  const service = getServiceById(serviceId);
+  if (!service) return;
+  const isDatabase = service.repoUrl === "database" || (service.repoFullName?.startsWith("database:") ?? false);
+  if (!isDatabase) return;
+
+  const dbType = service.repoFullName?.split(":")[1] || "postgres";
+  const envs = db.select().from(envVars).where(eq(envVars.serviceId, serviceId)).all();
+  const envMap = new Map(envs.map(row => [row.key, row.value]));
+
+  let urlKey = "DATABASE_URL";
+  let urlValue = "";
+  const hostPort = service.hostPort;
+
+  if (dbType === "postgres") {
+    const user = envMap.get("POSTGRES_USER") || "postgres";
+    const password = envMap.get("POSTGRES_PASSWORD") || "";
+    const dbName = envMap.get("POSTGRES_DB") || "deploy";
+    urlKey = "DATABASE_URL";
+    urlValue = `postgresql://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
+  } else if (dbType === "mysql") {
+    const user = envMap.get("MYSQL_USER") || "mysql";
+    const password = envMap.get("MYSQL_PASSWORD") || "";
+    const dbName = envMap.get("MYSQL_DATABASE") || "deploy";
+    urlKey = "DATABASE_URL";
+    urlValue = `mysql://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
+  } else if (dbType === "redis") {
+    const password = envMap.get("REDIS_PASSWORD") || "";
+    urlKey = "REDIS_URL";
+    urlValue = password ? `redis://:${password}@127.0.0.1:${hostPort}` : `redis://127.0.0.1:${hostPort}`;
+  } else if (dbType === "mongodb") {
+    const user = envMap.get("MONGO_INITDB_ROOT_USERNAME") || "mongo";
+    const password = envMap.get("MONGO_INITDB_ROOT_PASSWORD") || "";
+    urlKey = "MONGODB_URI";
+    urlValue = `mongodb://${user}:${password}@127.0.0.1:${hostPort}/?authSource=admin`;
+  } else if (dbType === "clickhouse") {
+    const user = envMap.get("CLICKHOUSE_USER") || "clickhouse";
+    const password = envMap.get("CLICKHOUSE_PASSWORD") || "";
+    const dbName = envMap.get("CLICKHOUSE_DB") || "deploy";
+    urlKey = "CLICKHOUSE_URL";
+    urlValue = `clickhouse://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
+  }
+
+  if (urlValue && envMap.get(urlKey) !== urlValue) {
+    const timestamp = nowIso();
+    db.insert(envVars)
+      .values({
+        id: nanoid(10),
+        serviceId,
+        key: urlKey,
+        value: urlValue,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      })
+      .onConflictDoUpdate({
+        target: [envVars.serviceId, envVars.key],
+        set: { value: urlValue, updatedAt: timestamp }
+      })
+      .run();
+  }
+}
+
+function syncAllExistingDatabaseUrls() {
+  try {
+    const allServices = db.select().from(services).all();
+    for (const service of allServices) {
+      const isDatabase = service.repoUrl === "database" || (service.repoFullName?.startsWith("database:") ?? false);
+      if (isDatabase) {
+        syncDatabaseUrlEnvVar(service.id);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to run retroactive database URL sync:", error);
+  }
 }
 
 app.get("/api/health", (c) => c.json({ ok: true }));
@@ -415,6 +514,32 @@ app.get("/api/projects/:projectSlug", async (c) => {
   return c.json({ project: await summarizeProject(project, getServicesForProject(project.id)) });
 });
 
+app.patch("/api/projects/:projectId", async (c) => {
+  const project = getProjectById(c.req.param("projectId"));
+  if (!project) {
+    return jsonError("Project not found", 404);
+  }
+
+  const body = updateProjectSchema.safeParse(await c.req.json());
+  if (!body.success) {
+    return jsonError(body.error.issues[0]?.message ?? "Invalid project");
+  }
+
+  const updated = {
+    ...project,
+    name: body.data.name ?? project.name,
+    description: body.data.description === undefined ? project.description : body.data.description ?? null,
+    updatedAt: nowIso()
+  };
+
+  db.update(projectGroups)
+    .set({ name: updated.name, description: updated.description, updatedAt: updated.updatedAt })
+    .where(eq(projectGroups.id, project.id))
+    .run();
+
+  return c.json({ project: await summarizeProject(updated, getServicesForProject(project.id)) });
+});
+
 app.post("/api/projects/:projectId/services", async (c) => {
   const project = getProjectById(c.req.param("projectId"));
   if (!project) {
@@ -455,6 +580,7 @@ app.get("/api/services/:serviceId/overview", async (c) => {
       id: row.id,
       key: row.key,
       hasValue: row.value.length > 0,
+      value: row.value,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     }));
@@ -510,6 +636,8 @@ app.patch("/api/services/:serviceId", async (c) => {
     })
     .where(eq(services.id, service.id))
     .run();
+
+  syncDatabaseUrlEnvVar(service.id);
 
   const updated = getServiceById(service.id);
   return c.json({ service: updated ? await publicService(updated) : null });
@@ -734,11 +862,14 @@ app.post("/api/services/:serviceId/env", async (c) => {
     })
     .run();
 
+  syncDatabaseUrlEnvVar(service.id);
+
   return c.json({ ok: true }, 201);
 });
 
 app.delete("/api/services/:serviceId/env/:envId", (c) => {
   db.delete(envVars).where(eq(envVars.id, c.req.param("envId"))).run();
+  syncDatabaseUrlEnvVar(c.req.param("serviceId"));
   return c.json({ ok: true });
 });
 
@@ -823,6 +954,7 @@ if (process.env.NODE_ENV === "production") {
   app.get("*", serveStatic({ path: "./dist/client/index.html" }));
 }
 
+syncAllExistingDatabaseUrls();
 startDeployWorker();
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
