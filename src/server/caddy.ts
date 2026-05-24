@@ -24,32 +24,44 @@ function staticSiteDirForService(serviceId: string) {
 }
 
 export function renderCaddyfile() {
-  const rows = db
+  const domainMappings = db
     .select({
       serviceId: services.id,
       hostname: domains.hostname,
       hostPort: services.hostPort,
-      staticOutput: services.staticOutput
+      activePort: services.activePort,
+      staticOutput: services.staticOutput,
+      repoUrl: services.repoUrl,
+      repoFullName: services.repoFullName
     })
     .from(domains)
     .innerJoin(services, eq(services.id, domains.serviceId))
     .where(and(eq(domains.status, "active"), eq(services.status, "active")))
     .all();
 
-  const staticOnlyServices = db
+  const appServices = db
     .select({
-      serviceId: services.id,
+      id: services.id,
       hostPort: services.hostPort,
-      staticOutput: services.staticOutput
+      activePort: services.activePort,
+      staticOutput: services.staticOutput,
+      repoUrl: services.repoUrl,
+      repoFullName: services.repoFullName
     })
     .from(services)
-    .where(and(eq(services.status, "active")))
+    .where(eq(services.status, "active"))
     .all()
-    .filter((row) => Boolean(row.staticOutput));
+    .filter((s) => {
+      const isDatabase = s.repoUrl === "database" || (s.repoFullName?.startsWith("database:") ?? false);
+      return !isDatabase;
+    });
 
   const blocks: string[] = [];
 
-  for (const row of rows) {
+  for (const row of domainMappings) {
+    const isDatabase = row.repoUrl === "database" || (row.repoFullName?.startsWith("database:") ?? false);
+    if (isDatabase) continue;
+
     if (row.staticOutput) {
       blocks.push(`${caddyAddress(row.hostname)} {
   root * ${staticSiteDirForService(row.serviceId)}
@@ -59,18 +71,29 @@ export function renderCaddyfile() {
       continue;
     }
 
+    const targetPort = row.activePort ?? row.hostPort;
     blocks.push(`${caddyAddress(row.hostname)} {
   encode zstd gzip
-  reverse_proxy 127.0.0.1:${row.hostPort}
+  reverse_proxy 127.0.0.1:${targetPort}
 }`);
   }
 
-  for (const row of staticOnlyServices) {
-    blocks.push(`${localPortAddress(row.hostPort)} {
-  root * ${staticSiteDirForService(row.serviceId)}
+  for (const s of appServices) {
+    if (s.staticOutput) {
+      blocks.push(`${localPortAddress(s.hostPort)} {
+  root * ${staticSiteDirForService(s.id)}
   try_files {path} {path}/ /index.html
   file_server
 }`);
+      continue;
+    }
+
+    if (s.activePort && s.activePort !== s.hostPort) {
+      blocks.push(`${localPortAddress(s.hostPort)} {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:${s.activePort}
+}`);
+    }
   }
 
   return [`# Managed by Deploy. Manual changes may be overwritten.`, ...blocks].join("\n\n") + "\n";
