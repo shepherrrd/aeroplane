@@ -176,6 +176,8 @@ export const api = {
   upsertEnv: (serviceId: string, body: unknown) =>
     request(`/api/services/${serviceId}/env`, { method: "POST", body: JSON.stringify(body) }),
   deleteEnv: (serviceId: string, envId: string) => request(`/api/services/${serviceId}/env/${envId}`, { method: "DELETE" }),
+  suggestionKeys: (serviceId: string) =>
+    request<{ suggestions: Array<{ key: string; label: string }> }>(`/api/services/${serviceId}/suggestion-keys`),
   addDomain: (serviceId: string, body: unknown) =>
     request(`/api/services/${serviceId}/domains`, { method: "POST", body: JSON.stringify(body) }),
   deleteDomain: (serviceId: string, domainId: string) =>
