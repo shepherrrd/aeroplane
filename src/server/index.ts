@@ -8,6 +8,8 @@ import { nanoid } from "nanoid";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import net from "node:net";
+import dns from "node:dns/promises";
+import { networkInterfaces } from "node:os";
 import { z } from "zod";
 import { config } from "./config.js";
 import { abortDeployment, allocateHostPort, containerNameForService, enqueueDeployment, getServiceById, removeServiceRuntime, startDeployWorker } from "./deploy.js";
@@ -559,6 +561,46 @@ app.post("/api/projects/:projectId/services", async (c) => {
   return c.json({ service: await publicService(service) }, 201);
 });
 
+function getLocalIpAddress() {
+  const nets = networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name] || []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "127.0.0.1";
+}
+
+let cachedPublicIp = getLocalIpAddress();
+async function fetchPublicIp() {
+  try {
+    const res = await fetch("https://api.ipify.org");
+    if (res.ok) {
+      cachedPublicIp = (await res.text()).trim();
+    }
+  } catch {
+    // Keep local network IP address
+  }
+}
+fetchPublicIp();
+
+async function checkDomainDns(hostname: string, targetIp: string): Promise<"active" | "pending"> {
+  if (hostname.endsWith(".localhost") || hostname === "localhost" || hostname === "127.0.0.1") {
+    return "active";
+  }
+  try {
+    const addresses = await dns.resolve4(hostname);
+    if (addresses.includes(targetIp) || addresses.includes("127.0.0.1")) {
+      return "active";
+    }
+  } catch {
+    // DNS lookup failed
+  }
+  return "pending";
+}
+
 app.get("/api/services/:serviceId/overview", async (c) => {
   const service = getServiceById(c.req.param("serviceId"));
   if (!service) {
@@ -598,6 +640,18 @@ app.get("/api/services/:serviceId/overview", async (c) => {
     .orderBy(asc(domains.hostname))
     .all();
 
+  // Dynamically check DNS configuration for each public domain in real-time
+  const updatedDomains = await Promise.all(
+    serviceDomains.map(async (d) => {
+      const status = await checkDomainDns(d.hostname, cachedPublicIp);
+      if (status !== d.status) {
+        db.update(domains).set({ status, updatedAt: nowIso() }).where(eq(domains.id, d.id)).run();
+        return { ...d, status, updatedAt: nowIso() };
+      }
+      return d;
+    })
+  );
+
   const publicFacingService = await publicService(service);
   const normalizedDeployments =
     publicFacingService.status === "failed"
@@ -610,7 +664,8 @@ app.get("/api/services/:serviceId/overview", async (c) => {
     service: publicFacingService,
     deployments: normalizedDeployments,
     env: serviceEnv,
-    domains: serviceDomains
+    domains: updatedDomains,
+    publicIp: cachedPublicIp
   });
 });
 
@@ -956,8 +1011,11 @@ app.post("/api/services/:serviceId/domains", async (c) => {
   }
 
   const timestamp = nowIso();
+  const isLocal = body.data.hostname.endsWith(".localhost") || body.data.hostname === "localhost" || body.data.hostname === "127.0.0.1";
+  const initialStatus = isLocal ? "active" : "pending";
+
   db.insert(domains)
-    .values({ id: nanoid(10), serviceId: service.id, hostname: body.data.hostname, status: "active", createdAt: timestamp, updatedAt: timestamp })
+    .values({ id: nanoid(10), serviceId: service.id, hostname: body.data.hostname, status: initialStatus, createdAt: timestamp, updatedAt: timestamp })
     .run();
 
   const caddy = await writeAndReloadCaddy();
