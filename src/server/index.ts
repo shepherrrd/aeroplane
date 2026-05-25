@@ -395,13 +395,13 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
   if (dbType === "postgres") {
     const user = envMap.get("POSTGRES_USER") || "postgres";
     const password = envMap.get("POSTGRES_PASSWORD") || "";
-    const dbName = envMap.get("POSTGRES_DB") || "deploy";
+    const dbName = envMap.get("POSTGRES_DB") || "aeroplane";
     urlKey = "DATABASE_URL";
     urlValue = `postgresql://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
   } else if (dbType === "mysql") {
     const user = envMap.get("MYSQL_USER") || "mysql";
     const password = envMap.get("MYSQL_PASSWORD") || "";
-    const dbName = envMap.get("MYSQL_DATABASE") || "deploy";
+    const dbName = envMap.get("MYSQL_DATABASE") || "aeroplane";
     urlKey = "DATABASE_URL";
     urlValue = `mysql://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
   } else if (dbType === "redis") {
@@ -416,7 +416,7 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
   } else if (dbType === "clickhouse") {
     const user = envMap.get("CLICKHOUSE_USER") || "clickhouse";
     const password = envMap.get("CLICKHOUSE_PASSWORD") || "";
-    const dbName = envMap.get("CLICKHOUSE_DB") || "deploy";
+    const dbName = envMap.get("CLICKHOUSE_DB") || "aeroplane";
     urlKey = "CLICKHOUSE_URL";
     urlValue = `clickhouse://${user}:${password}@127.0.0.1:${hostPort}/${dbName}`;
   }
@@ -1199,5 +1199,5 @@ void writeAndReloadCaddy().catch((error) => {
 startDeployWorker();
 
 serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
-  console.log(`Deploy control plane listening on http://${info.address}:${info.port}`);
+  console.log(`Aeroplane control plane listening on http://${info.address}:${info.port}`);
 });
