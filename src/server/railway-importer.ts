@@ -64,7 +64,66 @@ export async function getRailwayProjects(token: string) {
   });
 }
 
-export async function importRailwayProject(token: string, railwayProjectId: string) {
+export async function getRailwayProjectDetails(token: string, railwayProjectId: string) {
+  const query = `
+    query GetRailwayProjectDetails($id: String!) {
+      project(id: $id) {
+        id
+        name
+        description
+        services {
+          edges {
+            node {
+              id
+              name
+            }
+          }
+        }
+        environments {
+          edges {
+            node {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await fetchRailwayGraphQL(token, query, { id: railwayProjectId });
+  const project = data?.project;
+  if (!project) {
+    throw new Error("Railway project not found");
+  }
+
+  const services = (project.services?.edges ?? []).map((e: any) => ({
+    id: e.node.id,
+    name: e.node.name
+  }));
+
+  const environments = (project.environments?.edges ?? []).map((e: any) => ({
+    id: e.node.id,
+    name: e.node.name
+  }));
+
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description ?? "",
+    services,
+    environments
+  };
+}
+
+export interface ImportConfig {
+  environmentId?: string;
+  excludeRailwayVars?: boolean;
+  importDatabases?: boolean;
+  selectedServiceIds?: string[];
+}
+
+export async function importRailwayProject(token: string, railwayProjectId: string, config: ImportConfig) {
   const projectQuery = `
     query GetRailwayProjectDetails($id: String!) {
       project(id: $id) {
@@ -100,6 +159,7 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
                       repo
                       image
                     }
+                    rootDirectory
                   }
                 }
               }
@@ -118,19 +178,24 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
 
   const servicesEdges = rProject.services?.edges ?? [];
   const environmentEdges = rProject.environments?.edges ?? [];
-  const firstEnvNode = environmentEdges[0]?.node;
-  const firstEnvId = firstEnvNode?.id;
+  
+  // Use target environment if provided, otherwise default to first environment
+  const targetEnvNode = config.environmentId
+    ? environmentEdges.find((e: any) => e.node?.id === config.environmentId)?.node || environmentEdges[0]?.node
+    : environmentEdges[0]?.node;
+  const targetEnvId = targetEnvNode?.id;
 
-  // Build serviceSourceMap from serviceInstances of the first environment
-  const serviceSourceMap = new Map<string, { repo?: string; image?: string }>();
-  if (firstEnvNode) {
-    const instancesEdges = firstEnvNode.serviceInstances?.edges ?? [];
+  // Build serviceSourceMap from serviceInstances of the target environment
+  const serviceSourceMap = new Map<string, { repo?: string; image?: string; rootDirectory?: string }>();
+  if (targetEnvNode) {
+    const instancesEdges = targetEnvNode.serviceInstances?.edges ?? [];
     for (const edge of instancesEdges) {
       const node = edge?.node;
       if (node && node.serviceId) {
         serviceSourceMap.set(node.serviceId, {
           repo: node.source?.repo || undefined,
-          image: node.source?.image || undefined
+          image: node.source?.image || undefined,
+          rootDirectory: node.rootDirectory || undefined
         });
       }
     }
@@ -162,11 +227,18 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
     const serviceName = sNode.name;
     const serviceId = sNode.id;
 
+    // Filter services based on selection
+    if (config.selectedServiceIds && !config.selectedServiceIds.includes(serviceId)) {
+      continue;
+    }
+
     let repoUrl = "";
     let repoFullName = "";
     let branch = "main";
     let internalPort = 8080;
     let isDatabase = false;
+
+    let rootDir: string | null = null;
 
     // 1. Resolve from repoTriggers if available
     const triggersEdges = sNode.repoTriggers?.edges ?? [];
@@ -182,10 +254,16 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
     // 2. Resolve from serviceSourceMap (fallback for repo, or container image details)
     const sourceInfo = serviceSourceMap.get(serviceId);
     if (sourceInfo) {
+      if (sourceInfo.rootDirectory) {
+        rootDir = sourceInfo.rootDirectory;
+      }
       if (sourceInfo.repo && !repoUrl) {
         repoFullName = sourceInfo.repo.replace("https://github.com/", "").replace(/\.git$/, "");
         repoUrl = sourceInfo.repo.startsWith("http") ? sourceInfo.repo : `https://github.com/${sourceInfo.repo}`;
       } else if (sourceInfo.image) {
+        if (config.importDatabases === false) {
+          continue; // Skip database container
+        }
         isDatabase = true;
         repoUrl = "database";
         repoFullName = `database:${sourceInfo.image.split(":")[0]}`;
@@ -195,26 +273,30 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
     // Auto-detect database types from service name
     const lowercaseName = serviceName.toLowerCase();
     if (!repoUrl) {
-      if (lowercaseName.includes("postgres")) {
+      if (
+        lowercaseName.includes("postgres") ||
+        lowercaseName.includes("mysql") ||
+        lowercaseName.includes("redis") ||
+        lowercaseName.includes("mongo")
+      ) {
+        if (config.importDatabases === false) {
+          continue; // Skip database container
+        }
         isDatabase = true;
         repoUrl = "database";
-        repoFullName = "database:postgres";
-        internalPort = 5432;
-      } else if (lowercaseName.includes("mysql")) {
-        isDatabase = true;
-        repoUrl = "database";
-        repoFullName = "database:mysql";
-        internalPort = 3306;
-      } else if (lowercaseName.includes("redis")) {
-        isDatabase = true;
-        repoUrl = "database";
-        repoFullName = "database:redis";
-        internalPort = 6379;
-      } else if (lowercaseName.includes("mongo")) {
-        isDatabase = true;
-        repoUrl = "database";
-        repoFullName = "database:mongodb";
-        internalPort = 27017;
+        if (lowercaseName.includes("postgres")) {
+          repoFullName = "database:postgres";
+          internalPort = 5432;
+        } else if (lowercaseName.includes("mysql")) {
+          repoFullName = "database:mysql";
+          internalPort = 3306;
+        } else if (lowercaseName.includes("redis")) {
+          repoFullName = "database:redis";
+          internalPort = 6379;
+        } else if (lowercaseName.includes("mongo")) {
+          repoFullName = "database:mongodb";
+          internalPort = 27017;
+        }
       } else {
         // Fallback placeholder repo
         repoUrl = "https://github.com/railpack/railpack";
@@ -222,9 +304,9 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
       }
     }
 
-    // Fetch variables for this service in the first environment
+    // Fetch variables for this service in the target environment
     let fetchedVars: Record<string, string> = {};
-    if (firstEnvId) {
+    if (targetEnvId) {
       const varsQuery = `
         query GetVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
           variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
@@ -233,7 +315,7 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
       try {
         const varsData = await fetchRailwayGraphQL(token, varsQuery, {
           projectId: railwayProjectId,
-          environmentId: firstEnvId,
+          environmentId: targetEnvId,
           serviceId
         });
         fetchedVars = varsData?.variables ?? {};
@@ -262,7 +344,7 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
       repoFullName: repoFullName || null,
       repoUrl,
       branch,
-      rootDir: null,
+      rootDir,
       githubToken: null,
       webhookSecret: nanoid(24),
       installCommand: null,
@@ -280,6 +362,9 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
 
     // Insert variables
     for (const [key, value] of Object.entries(fetchedVars)) {
+      if (config.excludeRailwayVars && key.startsWith("RAILWAY_")) {
+        continue; // Filter out system vars
+      }
       db.insert(envVars).values({
         id: nanoid(10),
         serviceId: targetServiceId,
