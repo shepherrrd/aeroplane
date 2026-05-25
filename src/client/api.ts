@@ -98,6 +98,41 @@ export type ToolCheck = {
   detail: string;
 };
 
+export type SystemUpdateCommit = {
+  sha: string;
+  shortSha: string;
+  title: string;
+  author: string;
+  date: string;
+  url: null | string;
+};
+
+export type SystemUpdateRun = {
+  status: "idle" | "running" | "succeeded" | "failed";
+  startedAt: null | string;
+  finishedAt: null | string;
+  targetCommit: null | string;
+  restartQueued: boolean;
+  logs: string[];
+  error: null | string;
+};
+
+export type SystemUpdateInfo = {
+  repo: string;
+  repoUrl: string;
+  branch: string;
+  currentCommit: null | string;
+  currentShortCommit: null | string;
+  remoteCommit: null | string;
+  remoteShortCommit: null | string;
+  status: "current" | "available" | "diverged" | "unknown";
+  dirty: boolean;
+  commits: SystemUpdateCommit[];
+  checkedAt: string;
+  error: null | string;
+  updateRun: SystemUpdateRun;
+};
+
 export type ServiceOverview = {
   service: Service;
   deployments: Deployment[];
@@ -214,5 +249,10 @@ export const api = {
     request<{ ok: boolean; settings: { rootDomain: string } }>("/api/system/settings", {
       method: "POST",
       body: JSON.stringify(body)
+    }),
+  systemUpdates: () => request<SystemUpdateInfo>("/api/system/updates"),
+  applySystemUpdate: () =>
+    request<{ ok: boolean; updateRun: SystemUpdateRun }>("/api/system/updates/apply", {
+      method: "POST"
     })
 };
