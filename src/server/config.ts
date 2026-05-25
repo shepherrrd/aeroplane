@@ -57,5 +57,8 @@ export const config = {
   hostPortStart: Number(process.env.DEPLOY_HOST_PORT_START ?? 4100),
   hostPortEnd: Number(process.env.DEPLOY_HOST_PORT_END ?? 4999),
   caddyConfigPath: resolve(process.env.CADDY_CONFIG_PATH ?? "data/Caddyfile"),
-  caddyReloadCmd: process.env.CADDY_RELOAD_CMD ?? "caddy reload --config ./data/Caddyfile"
+  caddyReloadCmd: process.env.CADDY_RELOAD_CMD ?? "caddy reload --config ./data/Caddyfile",
+  updateRepoUrl: process.env.AEROPLANE_UPDATE_REPO_URL ?? "https://github.com/akinloluwami/aeroplane.git",
+  updateRepoBranch: process.env.AEROPLANE_UPDATE_BRANCH ?? "main",
+  updateRestartCmd: process.env.AEROPLANE_UPDATE_RESTART_CMD ?? ""
 };
