@@ -184,7 +184,10 @@ export function EnvVarRow({ item, onSave, onDelete, busy, suggestions }: EnvVarR
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center border border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 transition duration-150"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              setHidden(false);
+              setEditing(true);
+            }}
             title="Edit"
             disabled={busy}
           >
