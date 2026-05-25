@@ -182,7 +182,7 @@ export function RailwayImportModal({ open, onClose, onSuccess }: RailwayImportMo
       {step === "auth" && (
         <div className="space-y-5">
           <div className="text-sm text-zinc-300 leading-relaxed">
-            Migrate your entire Railway stack to your self-hosted Deploy control plane in seconds. All services, environment variables, database engines, and configurations will be imported natively.
+            Migrate your entire Railway stack to your self-hosted Aeroplane control plane in seconds. All services, environment variables, database engines, and configurations will be imported natively.
           </div>
 
           <div>
