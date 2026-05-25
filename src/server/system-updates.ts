@@ -45,6 +45,8 @@ interface CommandResult {
   stderr: string;
 }
 
+type CommandEnv = NodeJS.ProcessEnv;
+
 const updateRemoteName = "aeroplane-updates";
 let activeRun: SystemUpdateRun = idleRun();
 let activeUpdate: Promise<void> | null = null;
@@ -93,15 +95,32 @@ function commandForLog(command: string, args: string[]) {
   return [command, ...args].join(" ");
 }
 
+function commandEnv(overrides: CommandEnv = {}) {
+  return {
+    ...process.env,
+    FORCE_COLOR: "0",
+    NO_COLOR: "1",
+    npm_config_color: "false",
+    ...overrides
+  };
+}
+
+function cleanCommandOutput(output: string) {
+  return output
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+}
+
 function appendLog(line: string) {
   activeRun.logs = [...activeRun.logs, line].slice(-160);
 }
 
-function runCommand(command: string, args: string[]): Promise<CommandResult> {
+function runCommand(command: string, args: string[], envOverrides?: CommandEnv): Promise<CommandResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: process.cwd(),
-      env: process.env,
+      env: commandEnv(envOverrides),
       shell: false
     });
     let stdout = "";
@@ -124,15 +143,15 @@ function runCommand(command: string, args: string[]): Promise<CommandResult> {
 async function readCommand(command: string, args: string[]) {
   const result = await runCommand(command, args);
   if (result.code !== 0) {
-    throw new Error((result.stderr || result.stdout || `${command} failed`).trim());
+    throw new Error(cleanCommandOutput(result.stderr || result.stdout || `${command} failed`));
   }
   return result.stdout.trim();
 }
 
-async function runLogged(command: string, args: string[]) {
+async function runLogged(command: string, args: string[], envOverrides?: CommandEnv) {
   appendLog(`$ ${commandForLog(command, args)}`);
-  const result = await runCommand(command, args);
-  const output = `${result.stdout}${result.stderr}`.trim();
+  const result = await runCommand(command, args, envOverrides);
+  const output = cleanCommandOutput(`${result.stdout}${result.stderr}`);
   if (output) {
     for (const line of output.split(/\r?\n/)) {
       appendLog(line);
@@ -286,7 +305,10 @@ async function runUpdate() {
     const commits = await commitsBetween(currentCommit, targetCommit);
     appendLog(`Applying ${commits.length} commit${commits.length === 1 ? "" : "s"} up to ${shortSha(targetCommit)}.`);
     await runLogged("git", ["merge", "--ff-only", targetCommit]);
-    await runLogged(npmCommand(), ["ci"]);
+    await runLogged(npmCommand(), ["ci", "--include=dev"], {
+      NODE_ENV: "development",
+      npm_config_production: "false"
+    });
     await runLogged(npmCommand(), ["run", "build"]);
 
     if (queueRestart()) {
