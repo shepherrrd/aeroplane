@@ -1,5 +1,5 @@
 import {
-  AddSquareIcon,
+  Add01Icon,
   ArrowLeft01Icon,
   CheckmarkCircle02Icon,
   Cancel01Icon,
@@ -17,7 +17,8 @@ import {
   WorkflowSquare07Icon,
   CloudServerIcon,
   CopyIcon,
-  CopyCheckIcon
+  CopyCheckIcon,
+  Refresh03Icon
 } from "@hugeicons/core-free-icons";
 import { Link } from "@tanstack/react-router";
 import { ClipboardEvent, FormEvent, ReactNode, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -183,6 +184,7 @@ export function ServiceModal({
   const [copiedIpDomainId, setCopiedIpDomainId] = useState<string | null>(null);
   const [editingDomainId, setEditingDomainId] = useState<string | null>(null);
   const [editingHostname, setEditingHostname] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
   const [settings, setSettings] = useState({
     name: "",
     repoFullName: "",
@@ -209,6 +211,7 @@ export function ServiceModal({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [refreshingDns, setRefreshingDns] = useState(false);
 
   const loadOverview = useCallback(async () => {
     try {
@@ -663,7 +666,7 @@ export function ServiceModal({
                       </div>
                     </div>
                     <button type="button" className={shellButton("secondary")} onClick={() => setNewEnvOpen((current) => !current)}>
-                      <AppIcon icon={AddSquareIcon} size={16} />
+                      <AppIcon icon={Add01Icon} size={16} />
                       New variable
                     </button>
                   </div>
@@ -751,218 +754,298 @@ export function ServiceModal({
               ) : null}
 
               {selectedTab === "domains" ? (
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <form
-                    className="border border-zinc-700 bg-zinc-900/88 p-5"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void doAction("domain", async () => {
-                        await api.addDomain(serviceId, domainForm);
-                        startTransition(() => setDomainForm({ hostname: "" }));
-                      });
-                    }}
-                  >
-                    <SectionTitle icon={Globe02Icon} title="Domains" meta="Local `.localhost` names or public hostnames." />
-                    <div className="mt-5 space-y-4">
-                      <div>
-                        <FieldLabel>Hostname</FieldLabel>
-                        <FormInput value={domainForm.hostname} onChange={(event) => setDomainForm({ hostname: event.target.value })} placeholder={`${service?.slug ?? "service"}.localhost`} required />
-                      </div>
-                      <button type="submit" className={`${shellButton("primary")} w-full`} disabled={busy === "domain"}>
-                        <AppIcon icon={AddSquareIcon} size={16} />
-                        Add domain
+                <div className="space-y-6">
+                  {/* Header row with Add button */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/90 pb-5">
+                    <SectionTitle 
+                      icon={Globe02Icon} 
+                      title="Custom Domains" 
+                      meta="Point public custom domains to this service and configure DNS records." 
+                    />
+                    {!showAddForm && (
+                      <button
+                        type="button"
+                        className={shellButton("primary")}
+                        onClick={() => {
+                          setShowAddForm(true);
+                          setDomainForm({ hostname: "" });
+                        }}
+                      >
+                        <AppIcon icon={Add01Icon} size={16} />
+                        Add Domain
                       </button>
-                    </div>
-                  </form>
-                  <div className="space-y-3">
-                    {domains.map((domain) => {
-                      const isLocal = domain.hostname.endsWith(".localhost") || domain.hostname === "localhost" || domain.hostname === "127.0.0.1";
-                      const isExpanded = expandedDomainId === domain.id;
-                      
-                      // DNS instructions parsing
-                      const parts = domain.hostname.split(".");
-                      const isSub = parts.length > 2 && parts[parts.length - 1] !== "localhost";
-                      const hostName = isSub ? parts.slice(0, -2).join(".") : "@";
-                      const targetIp = overview?.publicIp ?? "127.0.0.1";
-                      const isCopied = copiedIpDomainId === domain.id;
+                    )}
+                  </div>
 
-                      const handleCopyIp = async (e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        try {
-                          await navigator.clipboard.writeText(targetIp);
-                          setCopiedIpDomainId(domain.id);
-                          setTimeout(() => setCopiedIpDomainId(null), 1500);
-                        } catch (err) {
-                          console.error("Failed to copy IP:", err);
-                        }
-                      };
+                  {/* Collapsible Add Domain inline form */}
+                  {showAddForm && (
+                    <form
+                      className="border border-zinc-700 bg-zinc-900/60 p-5 space-y-4 w-full transition-all duration-200"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void doAction("domain", async () => {
+                          await api.addDomain(serviceId, domainForm);
+                          startTransition(() => {
+                            setDomainForm({ hostname: "" });
+                            setShowAddForm(false);
+                          });
+                        });
+                      }}
+                    >
+                      <SectionTitle 
+                        icon={Add01Icon} 
+                        title="Add Custom Domain" 
+                        meta="Input your registered domain name below." 
+                      />
+                      <div className="mt-4 flex items-end gap-3">
+                        <div className="flex-1">
+                          <FormInput 
+                            value={domainForm.hostname} 
+                            onChange={(event) => setDomainForm({ hostname: event.target.value })} 
+                            placeholder="app.example.com" 
+                            required 
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button 
+                            type="submit" 
+                            className={`${shellButton("primary")} !h-10 !px-4`}
+                            disabled={busy === "domain"}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className={`${shellButton("ghost")} !h-10 !px-4`}
+                            onClick={() => setShowAddForm(false)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
 
-                      const isEditing = editingDomainId === domain.id;
+                  {/* Domains list */}
+                  {(() => {
+                    const visibleDomains = domains;
 
+                    if (visibleDomains.length === 0) {
                       return (
-                        <div 
-                          key={domain.id} 
-                          className={`border border-zinc-700 bg-zinc-900/88 transition-all duration-200 overflow-hidden ${
-                            isLocal || isEditing ? "" : "hover:border-zinc-500 cursor-pointer"
-                          }`}
-                          onClick={() => {
-                            if (!isLocal && !isEditing) {
-                              setExpandedDomainId(isExpanded ? null : domain.id);
-                            }
-                          }}
-                        >
-                          <div className="flex items-center justify-between px-5 py-4 select-none">
-                            {isEditing ? (
-                              <form 
-                                className="flex flex-1 items-center gap-3" 
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  void doAction("domain", async () => {
-                                    await api.updateDomain(serviceId, domain.id, { hostname: editingHostname });
-                                    setEditingDomainId(null);
-                                  });
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <input
-                                    type="text"
-                                    value={editingHostname}
-                                    onChange={(e) => setEditingHostname(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 px-3 py-1.5 text-xs font-mono text-zinc-100 rounded focus:border-[#4FB8B2]/50 focus:outline-none"
-                                    required
-                                    placeholder="sub.domain.com"
-                                  />
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <button
-                                    type="submit"
-                                    className={`${shellButton("primary")} !h-8 !px-3 font-semibold text-xs`}
-                                    disabled={busy === "domain"}
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={`${shellButton("ghost")} !h-8 !px-3 text-xs`}
-                                    onClick={() => setEditingDomainId(null)}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </form>
-                            ) : (
-                              <>
-                                <div>
-                                  <div className="font-semibold font-mono text-sm text-zinc-100 flex items-center gap-2">
-                                    <AppIcon icon={Globe02Icon} size={15} className="text-[#4FB8B2]" />
-                                    {domain.hostname}
-                                  </div>
-                                  <div className="text-[10px] text-zinc-400 font-mono mt-1.5 uppercase tracking-wider flex items-center gap-1.5">
-                                    <span>{isLocal ? "⚡ Local loopback DNS" : "🌐 Public custom domain"}</span>
-                                    {!isLocal && (
-                                      <span className="text-[9px] text-[#4FB8B2]/80 border border-[#4FB8B2]/30 px-1 py-0.2">
-                                        {isExpanded ? "Click to collapse" : "Click to configure"}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <StatusPill status={domain.status} />
-                                  <button 
-                                    type="button" 
-                                    className={shellButton("ghost")} 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingDomainId(domain.id);
-                                      setEditingHostname(domain.hostname);
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button 
-                                    type="button" 
-                                    className={shellButton("ghost")} 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void doAction("domain", async () => void api.deleteDomain(serviceId, domain.id));
-                                    }}
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-                              </>
-                            )}
+                        <div className="border border-dashed border-zinc-800 bg-zinc-950/20 p-8 text-center rounded">
+                          <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 border border-zinc-850 text-zinc-500 mb-3">
+                            <AppIcon icon={Globe02Icon} size={20} />
                           </div>
-
-                          {/* Expandable DNS panel */}
-                          {!isLocal && isExpanded && (
-                            <div className="border-t border-zinc-800 bg-zinc-950/45 p-5 space-y-4 font-sans" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex flex-col gap-1.5">
-                                <h4 className="text-xs font-semibold uppercase tracking-wider font-mono text-zinc-300">
-                                  {domain.status === "active" 
-                                    ? "✅ DNS Configured Correctly" 
-                                    : "⚠️ DNS Configuration Required"}
-                                </h4>
-                                <p className="text-xs text-zinc-400 leading-relaxed">
-                                  To route public internet traffic to your self-hosted service, configure an **A Record** at your domain registrar (Cloudflare, GoDaddy, Namecheap, etc.) using these details:
-                                </p>
-                              </div>
-
-                              <div className="border border-zinc-800 overflow-hidden font-mono text-xs rounded bg-zinc-900/10">
-                                <div className="grid grid-cols-[80px_100px_1fr_auto] bg-zinc-900/60 border-b border-zinc-800 px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">
-                                  <div>Type</div>
-                                  <div>Host</div>
-                                  <div>Points To</div>
-                                  <div className="text-right">Status</div>
-                                </div>
-                                <div className="grid grid-cols-[80px_100px_1fr_auto] items-center px-4 py-3 text-zinc-300">
-                                  <div className="font-semibold text-emerald-400">A</div>
-                                  <div className="bg-zinc-900/60 border border-zinc-800 px-1.5 py-0.5 rounded text-[10px] w-fit font-bold">{hostName}</div>
-                                  <div className="flex items-center gap-2 truncate font-semibold text-zinc-100 select-all pr-4">
-                                    {targetIp}
-                                    <button 
-                                      type="button" 
-                                      onClick={handleCopyIp}
-                                      className={`text-zinc-500 hover:text-zinc-300 transition-colors p-0.5`}
-                                      title={isCopied ? "Copied!" : "Copy IP Address"}
-                                    >
-                                      <AppIcon icon={isCopied ? CopyCheckIcon : CopyIcon} size={13} />
-                                    </button>
-                                  </div>
-                                  <div className="flex items-center justify-end text-right font-semibold text-[11px]">
-                                    {domain.status === "active" ? (
-                                      <span className="text-emerald-400">✓ Active</span>
-                                    ) : (
-                                      <span className="text-amber-500 animate-pulse">⚡ Pending</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-col gap-4 border-t border-zinc-800/80 pt-4 mt-2 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="text-[10px] text-zinc-500 font-mono leading-relaxed max-w-sm">
-                                  {domain.status === "active" 
-                                    ? "Perfect! Caddy reverse-proxy SSL/TLS certificates will automatically renew natively." 
-                                    : "DNS propagation can take a few minutes. Click verify to check again."}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="inline-flex h-8 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 px-3.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] transition shrink-0"
-                                  onClick={async () => {
-                                    await loadOverview();
-                                  }}
-                                >
-                                  🔄 Refresh & Verify
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          <h3 className="text-sm font-semibold text-zinc-300">No custom domains configured</h3>
+                          <p className="text-xs text-zinc-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                            Add a public custom domain name to route internet traffic directly to this service with automatic SSL certificates.
+                          </p>
                         </div>
                       );
-                    })}
-                  </div>
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        {visibleDomains.map((domain) => {
+                          const isExpanded = expandedDomainId === domain.id;
+                          const parts = domain.hostname.split(".");
+                          const isSub = parts.length > 2;
+                          const hostName = isSub ? parts.slice(0, -2).join(".") : "@";
+                          const targetIp = overview?.publicIp ?? "127.0.0.1";
+                          const isCopied = copiedIpDomainId === domain.id;
+
+                          const handleCopyIp = async (e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            try {
+                              await navigator.clipboard.writeText(targetIp);
+                              setCopiedIpDomainId(domain.id);
+                              setTimeout(() => setCopiedIpDomainId(null), 1500);
+                            } catch (err) {
+                              console.error("Failed to copy IP:", err);
+                            }
+                          };
+
+                          const isEditing = editingDomainId === domain.id;
+                          const isLocal = domain.hostname.endsWith(".localhost") || domain.hostname === "localhost" || domain.hostname === "127.0.0.1";
+
+                          return (
+                            <div 
+                              key={domain.id} 
+                              className={`border border-zinc-700 bg-zinc-900/88 transition-all duration-200 overflow-hidden ${
+                                isLocal || isEditing ? "" : "hover:border-zinc-500 cursor-pointer"
+                              }`}
+                              onClick={() => {
+                                if (!isLocal && !isEditing) {
+                                  setExpandedDomainId(isExpanded ? null : domain.id);
+                                }
+                              }}
+                            >
+                              <div className="flex items-center justify-between px-5 py-4 select-none">
+                                {isEditing ? (
+                                  <form 
+                                    className="flex flex-1 items-center gap-3" 
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      void doAction("domain", async () => {
+                                        await api.updateDomain(serviceId, domain.id, { hostname: editingHostname });
+                                        setEditingDomainId(null);
+                                      });
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <input
+                                        type="text"
+                                        value={editingHostname}
+                                        onChange={(e) => setEditingHostname(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-700 px-3 py-1.5 text-xs font-mono text-zinc-100 rounded focus:border-[#4FB8B2]/50 focus:outline-none"
+                                        required
+                                        placeholder="app.example.com"
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        type="submit"
+                                        className={`${shellButton("primary")} !h-8 !px-3 font-semibold text-xs`}
+                                        disabled={busy === "domain"}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`${shellButton("ghost")} !h-8 !px-3 text-xs`}
+                                        onClick={() => setEditingDomainId(null)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </form>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <a
+                                        href={isLocal ? `http://${domain.hostname}` : `https://${domain.hostname}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="font-semibold font-mono text-sm text-zinc-100 hover:text-[#4FB8B2] transition-colors flex items-center gap-2 w-fit"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <AppIcon icon={Globe02Icon} size={15} className="text-[#4FB8B2]" />
+                                        {domain.hostname}
+                                      </a>
+                                      <div className="text-[10px] text-zinc-400 font-mono mt-1.5 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>{isLocal ? "Local loopback DNS" : "Public custom domain"}</span>
+                                        {!isLocal && (
+                                          <span className="text-[9px] text-[#4FB8B2]/80 border border-[#4FB8B2]/30 px-1 py-0.2">
+                                            {isExpanded ? "Click to collapse" : "Click to configure"}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <StatusPill status={domain.status} />
+                                      <button 
+                                        type="button" 
+                                        className={shellButton("ghost")} 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingDomainId(domain.id);
+                                          setEditingHostname(domain.hostname);
+                                        }}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button 
+                                        type="button" 
+                                        className={shellButton("ghost")} 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void doAction("domain", async () => void api.deleteDomain(serviceId, domain.id));
+                                        }}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Expandable DNS panel */}
+                              {isExpanded && (
+                                <div className="border-t border-zinc-800 bg-zinc-950/45 p-5 space-y-4 font-sans" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex flex-col gap-1.5">
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider font-mono text-zinc-300">
+                                      {domain.status === "active" 
+                                        ? "✅ DNS Configured Correctly" 
+                                        : "⚠️ DNS Configuration Required"}
+                                    </h4>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">
+                                      To route public internet traffic to your self-hosted service, configure an **A Record** at your domain registrar (Cloudflare, GoDaddy, Namecheap, etc.) using these details:
+                                    </p>
+                                  </div>
+
+                                  <div className="border border-zinc-800 overflow-hidden font-mono text-xs rounded bg-zinc-900/10">
+                                    <div className="grid grid-cols-[80px_100px_1fr_auto] bg-zinc-900/60 border-b border-zinc-800 px-4 py-2 text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">
+                                      <div>Type</div>
+                                      <div>Host</div>
+                                      <div>Points To</div>
+                                      <div className="text-right">Status</div>
+                                    </div>
+                                    <div className="grid grid-cols-[80px_100px_1fr_auto] items-center px-4 py-3 text-zinc-300">
+                                      <div className="font-semibold text-emerald-400">A</div>
+                                      <div className="bg-zinc-900/60 border border-zinc-800 px-1.5 py-0.5 rounded text-[10px] w-fit font-bold">{hostName}</div>
+                                      <div className="flex items-center gap-2 truncate font-semibold text-zinc-100 select-all pr-4">
+                                        {targetIp}
+                                        <button 
+                                          type="button" 
+                                          onClick={handleCopyIp}
+                                          className={`text-zinc-500 hover:text-zinc-300 transition-colors p-0.5`}
+                                          title={isCopied ? "Copied!" : "Copy IP Address"}
+                                        >
+                                          <AppIcon icon={isCopied ? CopyCheckIcon : CopyIcon} size={13} />
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center justify-end text-right font-semibold text-[11px]">
+                                        {domain.status === "active" ? (
+                                          <span className="text-emerald-400">✓ Active</span>
+                                        ) : (
+                                          <span className="text-amber-500 animate-pulse">⚡ Pending</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-col gap-4 border-t border-zinc-800/80 pt-4 mt-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <span className="text-[10px] text-zinc-500 font-mono leading-relaxed max-w-sm">
+                                      {domain.status === "active" 
+                                        ? "Perfect! Caddy reverse-proxy SSL/TLS certificates will automatically renew natively." 
+                                        : "DNS propagation can take a few minutes. Click verify to check again."}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-8 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 px-3.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] transition shrink-0 gap-1.5 hover:border-zinc-500 hover:text-white disabled:opacity-55 disabled:cursor-not-allowed"
+                                      onClick={async () => {
+                                        setRefreshingDns(true);
+                                        try {
+                                          await loadOverview();
+                                        } finally {
+                                          setRefreshingDns(false);
+                                        }
+                                      }}
+                                      disabled={refreshingDns}
+                                    >
+                                      <AppIcon icon={Refresh03Icon} size={13} className={refreshingDns ? "animate-spin" : ""} /> Refresh & Verify
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : null}
 
