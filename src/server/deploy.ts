@@ -306,14 +306,15 @@ async function getContainerState(containerName: string) {
   const result = await runBufferedCommand("docker", [
     "inspect",
     "--format",
-    "{{.State.Running}}|{{.State.Status}}|{{.State.ExitCode}}|{{.State.Error}}",
+    "{{.State.Running}}|{{.State.Restarting}}|{{.State.Status}}|{{.State.ExitCode}}|{{.State.Error}}",
     containerName
   ]);
   if (result.code !== 0) return null;
 
-  const [running = "", status = "unknown", exitCode = "", error = ""] = result.stdout.trim().split("|");
+  const [running = "", restarting = "", status = "unknown", exitCode = "", error = ""] = result.stdout.trim().split("|");
   return {
     running: running === "true",
+    restarting: restarting === "true",
     status,
     exitCode: Number(exitCode),
     error
@@ -332,6 +333,11 @@ async function probeContainerStartup(port: number, containerName: string, timeou
   const startTime = Date.now();
   while (Date.now() - startTime <= timeoutMs) {
     const state = await getContainerState(containerName);
+    if (state?.restarting) {
+      const exitText = Number.isFinite(state.exitCode) ? ` with exit code ${state.exitCode}` : "";
+      const errorText = state.error ? `: ${state.error}` : "";
+      throw new Error(`Container entered a restart loop${exitText}${errorText}`);
+    }
     if (state && !state.running) {
       const exitText = Number.isFinite(state.exitCode) ? ` with exit code ${state.exitCode}` : "";
       const errorText = state.error ? `: ${state.error}` : "";
