@@ -247,7 +247,7 @@ export function ProjectPage({
             <section className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
               {project.services.map((service) => {
                 const isDatabase = service.repoUrl === "database" || (service.repoFullName?.startsWith("database:") ?? false);
-                const visibleUrl = service.primaryUrl || service.localUrl;
+                const visibleUrl = (service.primaryUrl || service.localUrl).replace("127.0.0.1", window.location.hostname);
                 const visibleLabel = visibleUrl.replace(/^https?:\/\//, "");
                 const repoLabel = service.repoFullName ?? service.repoUrl.replace(/^https?:\/\//, "").replace(/^github\.com\//, "");
                 const rootLabel = service.rootDir ? service.rootDir : "repository root";
@@ -279,7 +279,7 @@ export function ProjectPage({
                               <h2 className="truncate font-sans text-xl font-semibold tracking-tight text-zinc-100">{service.name}</h2>
                               {isDatabase ? (
                                 <div className="mt-1 truncate text-sm text-zinc-500 font-mono">
-                                  Connect at 127.0.0.1:{service.hostPort}
+                                  Connect at {window.location.hostname}:{service.hostPort}
                                 </div>
                               ) : service.reachable ? (
                                 <a
