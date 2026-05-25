@@ -112,11 +112,11 @@ export function renderCaddyfile() {
 
   if (blocks.length === 0) {
     blocks.push(`http://127.0.0.1:65535 {
-  respond "No active Deploy routes." 404
+  respond "No active Aeroplane routes." 404
 }`);
   }
 
-  return [`# Managed by Deploy. Manual changes may be overwritten.`, ...blocks].join("\n\n") + "\n";
+  return [`# Managed by Aeroplane. Manual changes may be overwritten.`, ...blocks].join("\n\n") + "\n";
 }
 
 export async function writeAndReloadCaddy() {
