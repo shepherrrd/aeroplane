@@ -1033,17 +1033,17 @@ export function ServiceModal({
                       {isDatabase ? (
                         <div className="flex items-center gap-3 border border-zinc-700 bg-zinc-900/85 px-3 py-3 text-sm text-zinc-200">
                           <BrowserIconFallback size={17} />
-                          <span className="truncate">Connect at 127.0.0.1:{service?.hostPort}</span>
+                          <span className="truncate">Connect at {window.location.hostname}:{service?.hostPort}</span>
                         </div>
                       ) : service?.reachable ? (
                         <a
-                          href={service.primaryUrl}
+                          href={service.primaryUrl.replace("127.0.0.1", window.location.hostname)}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-3 border border-zinc-700 bg-zinc-900/85 px-3 py-3 text-sm text-zinc-200 transition hover:border-[#4FB8B2]/45 hover:text-[#7fe3dd]"
                         >
                           <BrowserIconFallback size={17} />
-                          <span className="truncate">{service.primaryUrl.replace(/^https?:\/\//, "")}</span>
+                          <span className="truncate">{service.primaryUrl.replace("127.0.0.1", window.location.hostname).replace(/^https?:\/\//, "")}</span>
                         </a>
                       ) : (
                         <div className="flex items-center gap-3 border border-rose-500/20 bg-rose-950/20 px-3 py-3 text-sm text-rose-200">
