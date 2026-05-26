@@ -20,7 +20,7 @@ import { getRailwayProjects, getRailwayProjectDetails, importRailwayProject } fr
 import { githubConnectionStatus, listConnectedRepos, listRepoBranches, listRepoDirectories, repoUrlFromFullName } from "./github-connect.js";
 import { branchFromGitRef, verifyGitHubSignature } from "./github.js";
 import { subscribeToDeploymentLogs } from "./logBus.js";
-import { buildDatabaseConnectionUrl, databaseTypeForService, isDatabaseService } from "./database-urls.js";
+import { buildDatabaseConnectionUrl, databaseTypeForService, isDatabaseService, publicDatabaseUrlKey, publicDatabaseUrlKeys } from "./database-urls.js";
 import {
   deploymentLogs,
   deployments,
@@ -437,6 +437,7 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
         port: service.hostPort
       }).value
     : "";
+  const publicKey = publicDatabaseUrlKey(dbType);
 
   if (publicUrl) {
     const timestamp = nowIso();
@@ -444,7 +445,7 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
       .values({
         id: nanoid(10),
         serviceId,
-        key: "DATABASE_PUBLIC_URL",
+        key: publicKey,
         value: publicUrl,
         createdAt: timestamp,
         updatedAt: timestamp
@@ -454,8 +455,14 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
         set: { value: publicUrl, updatedAt: timestamp }
       })
       .run();
-  } else if (envMap.has("DATABASE_PUBLIC_URL")) {
-    db.delete(envVars).where(and(eq(envVars.serviceId, serviceId), eq(envVars.key, "DATABASE_PUBLIC_URL"))).run();
+  }
+
+  for (const key of publicDatabaseUrlKeys) {
+    if (key !== publicKey && envMap.has(key)) {
+      db.delete(envVars).where(and(eq(envVars.serviceId, serviceId), eq(envVars.key, key))).run();
+    } else if (!publicUrl && envMap.has(key)) {
+      db.delete(envVars).where(and(eq(envVars.serviceId, serviceId), eq(envVars.key, key))).run();
+    }
   }
 }
 
