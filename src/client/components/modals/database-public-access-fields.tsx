@@ -1,5 +1,5 @@
 import { Globe02Icon } from "@hugeicons/core-free-icons";
-import { AppIcon, FieldLabel, FormInput } from "../ui/primitives";
+import { AppIcon, FieldLabel } from "../ui/primitives";
 
 type DatabasePublicAccessFieldsProps = {
   enabled: boolean;
@@ -9,7 +9,6 @@ type DatabasePublicAccessFieldsProps = {
   disabled?: boolean;
   redeployHint?: boolean;
   onEnabledChange: (enabled: boolean) => void;
-  onHostnameChange: (hostname: string) => void;
 };
 
 export function DatabasePublicAccessFields({
@@ -19,8 +18,7 @@ export function DatabasePublicAccessFields({
   rootDomain,
   disabled,
   redeployHint,
-  onEnabledChange,
-  onHostnameChange
+  onEnabledChange
 }: DatabasePublicAccessFieldsProps) {
   const connectionTarget = hostname
     ? `${hostname}:${hostPort ?? "<port>"}`
@@ -53,15 +51,10 @@ export function DatabasePublicAccessFields({
         <>
           <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
             <div>
-              <FieldLabel>Hostname</FieldLabel>
-              <FormInput
-                value={hostname}
-                onChange={(event) => onHostnameChange(event.target.value)}
-                placeholder={rootDomain ? `db.${rootDomain}` : "db.example.com"}
-                disabled={disabled}
-                required={enabled}
-                autoComplete="off"
-              />
+              <FieldLabel>Generated hostname</FieldLabel>
+              <div className="flex h-11 min-w-0 items-center border border-zinc-800 bg-zinc-950 px-3 font-mono text-xs text-zinc-100">
+                <span className="truncate">{hostname || "Set root domain first"}</span>
+              </div>
             </div>
             <div>
               <FieldLabel>Connection target</FieldLabel>
