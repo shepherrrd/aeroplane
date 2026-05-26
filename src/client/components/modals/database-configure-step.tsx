@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../api";
 import { AppIcon, FieldLabel, FormInput, shellButton } from "../ui/primitives";
 import { getDatabaseOption, type DatabaseType, type EnvEntry } from "./database-service-options";
-import { DatabaseCredentialFields } from "./database-credential-fields";
+import { generateDatabaseHostname } from "./database-hostname";
 import { DatabasePublicAccessFields } from "./database-public-access-fields";
 
 interface DatabaseConfigureStepProps {
@@ -31,19 +31,12 @@ function generateRandomPassword(): string {
   return pwd;
 }
 
-function slugifyHostnamePart(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "database";
-}
-
 export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: DatabaseConfigureStepProps) {
   const [name, setName] = useState("");
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
-  const [newEnvOpen, setNewEnvOpen] = useState(false);
-  const [envForm, setEnvForm] = useState<EnvEntry>({ key: "", value: "" });
   const [rootDomain, setRootDomain] = useState("");
   const [publicEnabled, setPublicEnabled] = useState(false);
   const [publicHostname, setPublicHostname] = useState("");
-  const [hostnameTouched, setHostnameTouched] = useState(false);
 
   const dbOption = getDatabaseOption(dbType);
   const defaultPort = dbOption.defaultPort;
@@ -80,7 +73,6 @@ export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: Databa
     setEnvEntries(list);
     setPublicEnabled(false);
     setPublicHostname("");
-    setHostnameTouched(false);
   }, [dbType]);
 
   useEffect(() => {
@@ -98,9 +90,8 @@ export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: Databa
   }, []);
 
   useEffect(() => {
-    if (!publicEnabled || hostnameTouched || !rootDomain) return;
-    setPublicHostname(`${slugifyHostnamePart(name)}.${rootDomain}`);
-  }, [hostnameTouched, name, publicEnabled, rootDomain]);
+    setPublicHostname(publicEnabled ? generateDatabaseHostname(name, rootDomain) : "");
+  }, [name, publicEnabled, rootDomain]);
 
   function updateEnvValue(key: string, value: string) {
     setEnvEntries((current) => {
@@ -108,17 +99,6 @@ export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: Databa
       next.set(key, value);
       return Array.from(next.entries()).map(([entryKey, entryValue]) => ({ key: entryKey, value: entryValue }));
     });
-  }
-
-  function addEnvEntry() {
-    if (!envForm.key.trim()) return;
-    setEnvEntries((current) => {
-      const next = current.filter((entry) => entry.key !== envForm.key.trim());
-      next.push({ key: envForm.key.trim(), value: envForm.value });
-      return next;
-    });
-    setEnvForm({ key: "", value: "" });
-    setNewEnvOpen(false);
   }
 
   function handleFormSubmit(event: FormEvent) {
@@ -176,85 +156,22 @@ export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: Databa
             disabled={busy}
             onEnabledChange={(enabled) => {
               setPublicEnabled(enabled);
-              if (enabled && !publicHostname && rootDomain) {
-                setPublicHostname(`${slugifyHostnamePart(name)}.${rootDomain}`);
-                setHostnameTouched(false);
-              }
-            }}
-            onHostnameChange={(hostname) => {
-              setPublicHostname(hostname);
-              setHostnameTouched(true);
             }}
           />
 
-          <DatabaseCredentialFields
-            dbType={dbType}
-            entries={envEntries}
-            disabled={busy}
-            onChange={updateEnvValue}
-          />
-
-          {/* Environment variables */}
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3 border-b border-zinc-800 pb-2">
-              <span className="text-sm font-medium text-zinc-100">Advanced env vars</span>
-              <button
-                type="button"
-                className={shellButton("secondary")}
-                onClick={() => setNewEnvOpen((current) => !current)}
-                disabled={busy}
-              >
-                <AppIcon icon={AddSquareIcon} size={15} />
-                Add variable
-              </button>
+              <span className="text-sm font-medium text-zinc-100">Database details</span>
             </div>
-
-            {newEnvOpen ? (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_auto] border border-zinc-800 bg-zinc-950/40 p-4">
-                <div>
-                  <FieldLabel>Key</FieldLabel>
-                  <FormInput
-                    value={envForm.key}
-                    onChange={(event) => setEnvForm({ ...envForm, key: event.target.value })}
-                    placeholder="KEY"
-                    required
-                  />
-                </div>
-                <div>
-                  <FieldLabel>Value</FieldLabel>
-                  <FormInput
-                    value={envForm.value}
-                    onChange={(event) => setEnvForm({ ...envForm, value: event.target.value })}
-                    placeholder="VALUE"
-                    required
-                  />
-                </div>
-                <div className="flex items-end gap-2">
-                  <button type="button" className={shellButton("primary")} onClick={addEnvEntry}>
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    className={shellButton("ghost")}
-                    onClick={() => {
-                      setNewEnvOpen(false);
-                      setEnvForm({ key: "", value: "" });
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             <div className="overflow-hidden border border-zinc-800 bg-zinc-950/20">
               {envEntries.length === 0 ? (
-                <div className="px-5 py-6 text-sm text-zinc-500 font-sans">No credentials configured.</div>
+                <div className="px-5 py-6 text-sm text-zinc-500 font-sans">No database details configured.</div>
               ) : (
                 envEntries.map((item) => (
                   <div
                     key={item.key}
-                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_56px] items-center gap-4 border-b border-zinc-800/80 px-4 py-3.5 last:border-b-0"
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] items-center gap-4 border-b border-zinc-800/80 px-4 py-3.5 last:border-b-0"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="font-mono text-zinc-500 font-bold">{`{ }`}</span>
@@ -262,18 +179,13 @@ export function DatabaseConfigureStep({ dbType, onBack, onSubmit, busy }: Databa
                         {item.key}
                       </span>
                     </div>
-                    <div className="font-mono text-xs text-[#7fe3dd] bg-[#4FB8B2]/5 border border-[#4FB8B2]/10 px-2.5 py-1 select-all break-all max-h-16 overflow-y-auto">
-                      {item.value}
-                    </div>
-                    <button
-                      type="button"
-                      className="ml-auto inline-flex h-8 w-8 items-center justify-center border border-zinc-800 hover:border-rose-500/35 hover:bg-rose-500/10 text-zinc-500 hover:text-rose-300 transition-colors"
-                      onClick={() => setEnvEntries((current) => current.filter((entry) => entry.key !== item.key))}
+                    <FormInput
+                      value={item.value}
+                      onChange={(event) => updateEnvValue(item.key, event.target.value)}
                       disabled={busy}
-                      title="Remove"
-                    >
-                      &times;
-                    </button>
+                      autoComplete="off"
+                      className="font-mono text-xs text-[#7fe3dd]"
+                    />
                   </div>
                 ))
               )}
