@@ -4,6 +4,7 @@ import { db, nowIso } from "./db.js";
 import { services, envVars, projectGroups } from "./schema.js";
 import { allocateHostPort } from "./deploy.js";
 import { writeAndReloadCaddy } from "./caddy.js";
+import { buildDatabaseConnectionUrl, defaultDatabasePort, generatedDatabaseEnvVars, normalizeDatabaseType } from "./database-urls.js";
 
 async function fetchRailwayGraphQL(token: string, query: string, variables: any = {}) {
   const res = await fetch("https://backboard.railway.app/graphql/v2", {
@@ -265,8 +266,10 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
           continue; // Skip database container
         }
         isDatabase = true;
+        const dbType = normalizeDatabaseType(sourceInfo.image);
         repoUrl = "database";
-        repoFullName = `database:${sourceInfo.image.split(":")[0]}`;
+        repoFullName = `database:${dbType}`;
+        internalPort = defaultDatabasePort(dbType);
       }
     }
 
@@ -285,17 +288,21 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
         isDatabase = true;
         repoUrl = "database";
         if (lowercaseName.includes("postgres")) {
-          repoFullName = "database:postgres";
-          internalPort = 5432;
+          const dbType = "postgres";
+          repoFullName = `database:${dbType}`;
+          internalPort = defaultDatabasePort(dbType);
         } else if (lowercaseName.includes("mysql")) {
-          repoFullName = "database:mysql";
-          internalPort = 3306;
+          const dbType = "mysql";
+          repoFullName = `database:${dbType}`;
+          internalPort = defaultDatabasePort(dbType);
         } else if (lowercaseName.includes("redis")) {
-          repoFullName = "database:redis";
-          internalPort = 6379;
+          const dbType = "redis";
+          repoFullName = `database:${dbType}`;
+          internalPort = defaultDatabasePort(dbType);
         } else if (lowercaseName.includes("mongo")) {
-          repoFullName = "database:mongodb";
-          internalPort = 27017;
+          const dbType = "mongodb";
+          repoFullName = `database:${dbType}`;
+          internalPort = defaultDatabasePort(dbType);
         }
       } else {
         // Fallback placeholder repo
@@ -304,9 +311,12 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
       }
     }
 
-    // Fetch variables for this service in the target environment
-    let fetchedVars: Record<string, string> = {};
-    if (targetEnvId) {
+    // Database imports are recreated with fresh Aeroplane-managed credentials.
+    // Railway variables often point at Railway-only hosts and should not be copied.
+    let fetchedVars: Record<string, string> = isDatabase
+      ? generatedDatabaseEnvVars(repoFullName.split(":")[1] || "postgres")
+      : {};
+    if (!isDatabase && targetEnvId) {
       const varsQuery = `
         query GetVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
           variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
@@ -362,8 +372,21 @@ export async function importRailwayProject(token: string, railwayProjectId: stri
       updatedAt: timestamp
     }).run();
 
-    // Insert variables
-    for (const [key, value] of Object.entries(fetchedVars)) {
+    const variablesToInsert = { ...fetchedVars };
+    if (isDatabase) {
+      const dbType = repoFullName.split(":")[1] || "postgres";
+      const envMap = new Map(Object.entries(fetchedVars));
+      const connectionUrl = buildDatabaseConnectionUrl({
+        dbType,
+        envMap,
+        host: serviceSlug,
+        port: internalPort
+      });
+      variablesToInsert[connectionUrl.key] = connectionUrl.value;
+    }
+
+    // Insert app variables or generated database credentials
+    for (const [key, value] of Object.entries(variablesToInsert)) {
       if (config.excludeRailwayVars && key.startsWith("RAILWAY_")) {
         continue; // Filter out system vars
       }
