@@ -33,6 +33,7 @@ import {
 } from "./schema.js";
 import { getSystemChecks } from "./system.js";
 import { writeAndReloadCaddy } from "./caddy.js";
+import { syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
 import { createUniqueSlug } from "../shared/slug.js";
 import { getSystemSettings, saveSystemSettings } from "./system-settings.js";
 import { getSystemUpdateInfo, startSystemUpdate } from "./system-updates.js";
@@ -907,7 +908,13 @@ app.delete("/api/projects/:projectId", async (c) => {
 
 app.post("/api/services/:serviceId/deployments", (c) => {
   try {
-    const deployment = enqueueDeployment(c.req.param("serviceId"), { trigger: "manual" });
+    const service = getServiceById(c.req.param("serviceId"));
+    if (!service) {
+      return jsonError("Service not found", 404);
+    }
+
+    syncProjectDatabaseConnectionEnv(service.projectId);
+    const deployment = enqueueDeployment(service.id, { trigger: "manual" });
     return c.json({ deployment }, 201);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not create deployment", 404);
@@ -1181,6 +1188,10 @@ app.post("/api/github/app/webhook", async (c) => {
 
   if (matchingServices.length === 0) {
     return c.json({ ok: true, ignored: `${repoFullName}@${branch}` });
+  }
+
+  for (const projectId of new Set(matchingServices.map((service) => service.projectId))) {
+    syncProjectDatabaseConnectionEnv(projectId);
   }
 
   const queued = matchingServices.map((service) => enqueueDeployment(service.id, { trigger: "github", commitSha: payload.after }));
