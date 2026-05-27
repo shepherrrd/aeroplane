@@ -23,7 +23,8 @@ import {
   CopyCheckIcon,
   Refresh03Icon,
   CheckmarkBadge01Icon,
-  Alert02Icon
+  Alert02Icon,
+  DashboardSquare02Icon
 } from "@hugeicons/core-free-icons";
 import { ClipboardEvent, FormEvent, ReactNode, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -43,7 +44,6 @@ import {
   BrowserIconFallback,
   FieldLabel,
   FormInput,
-  FormSelect,
   FrameworkMark,
   SectionTitle,
   StatusPill,
@@ -542,8 +542,12 @@ export function ServiceModal({
 
   const service = overview?.service;
   const isDatabase = service?.repoUrl === "database" || (service?.repoFullName?.startsWith("database:") ?? false);
+  const databaseEngine = service?.repoFullName?.startsWith("database:")
+    ? service.repoFullName.slice("database:".length).toLowerCase()
+    : "";
+  const hasSqlConsole = isDatabase && databaseEngine !== "redis" && databaseEngine !== "mongodb" && databaseEngine !== "mongo";
   const visibleTabs = ([
-    ["overview", CloudServerIcon],
+    ["overview", DashboardSquare02Icon],
     ["deployments", PackageIcon],
     ["logs", LeftToRightListStarIcon],
     ["environment", VariableIcon],
@@ -552,7 +556,7 @@ export function ServiceModal({
     ["sql", VideoConsoleIcon],
     ["settings", GithubIcon]
   ] as Array<[ModalTab, unknown]>).filter(([tab]) => {
-    if (isDatabase) return tab !== "domains";
+    if (isDatabase) return tab !== "domains" && (tab !== "sql" || hasSqlConsole);
     return tab !== "data" && tab !== "sql";
   });
   const deployments = overview?.deployments ?? [];
@@ -583,7 +587,7 @@ export function ServiceModal({
     ? "flex flex-wrap gap-2"
     : "flex flex-wrap gap-2";
   const tabButtonClass = (tab: ModalTab) => isPage
-    ? `${chipClass(selectedTab === tab)} py-1.5`
+    ? `${chipClass(selectedTab === tab)} !py-1`
     : chipClass(selectedTab === tab);
   const tabUsesContainedScroll = selectedTab === "deployments" || selectedTab === "logs" || selectedTab === "data" || selectedTab === "sql";
   const contentClass = isPage
@@ -594,10 +598,12 @@ export function ServiceModal({
     if (!service) return;
     if (isDatabase && selectedTab === "domains") {
       onTabChange("deployments");
+    } else if (isDatabase && selectedTab === "sql" && !hasSqlConsole) {
+      onTabChange("deployments");
     } else if (!isDatabase && (selectedTab === "data" || selectedTab === "sql")) {
       onTabChange("deployments");
     }
-  }, [isDatabase, onTabChange, selectedTab, service]);
+  }, [hasSqlConsole, isDatabase, onTabChange, selectedTab, service]);
 
   return (
     <>
@@ -787,7 +793,7 @@ export function ServiceModal({
 
               {selectedTab === "data" && isDatabase ? <DatabaseBrowserPanel serviceId={serviceId} /> : null}
 
-              {selectedTab === "sql" && isDatabase ? <DatabaseSqlConsolePanel serviceId={serviceId} /> : null}
+              {selectedTab === "sql" && hasSqlConsole ? <DatabaseSqlConsolePanel serviceId={serviceId} /> : null}
 
               {selectedTab === "environment" ? (
                 <div className="space-y-5">
