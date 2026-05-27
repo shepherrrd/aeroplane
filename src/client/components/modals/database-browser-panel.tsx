@@ -105,18 +105,20 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     }
   }
 
-  async function deleteRow(row: DatabaseRow) {
-    if (!rowsResult || !window.confirm("Delete this database row?")) return;
+  async function deleteRows(rowsToDelete: DatabaseRow[]) {
+    if (!rowsResult || rowsToDelete.length === 0 || !window.confirm(`Delete ${rowsToDelete.length} selected row${rowsToDelete.length === 1 ? "" : "s"}?`)) return;
     setBusy("delete");
     setError("");
     try {
-      await api.deleteDatabaseRow(serviceId, {
-        table: rowsResult.table,
-        primaryKey: primaryKeyFor(columns, row)
-      });
+      for (const row of rowsToDelete) {
+        await api.deleteDatabaseRow(serviceId, {
+          table: rowsResult.table,
+          primaryKey: primaryKeyFor(columns, row)
+        });
+      }
       await loadRows(rowsResult.table);
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : "Could not delete row");
+      setError(issue instanceof Error ? issue.message : "Could not delete selected rows");
     } finally {
       setBusy("");
     }
@@ -154,7 +156,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
       <aside className="w-64 flex-none overflow-hidden border border-zinc-800 bg-zinc-950/45">
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
           <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">Tables</div>
-          <button type="button" className="text-zinc-400 hover:text-[#7fe3dd]" onClick={() => void loadTables()} disabled={busy === "tables"} aria-label="Refresh tables">
+          <button type="button" className="text-zinc-400 hover:text-zinc-100" onClick={() => void loadTables()} disabled={busy === "tables"} aria-label="Refresh tables">
             <AppIcon icon={Refresh03Icon} size={15} />
           </button>
         </div>
@@ -165,7 +167,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
             <button
               key={table.id}
               type="button"
-              className={`block w-full border-b border-zinc-900 px-4 py-3 text-left text-sm ${selectedTable === table.id ? "bg-[#4FB8B2]/12 text-[#7fe3dd]" : "text-zinc-300 hover:bg-zinc-900"}`}
+              className={`block w-full border-b border-zinc-900 px-4 py-3 text-left text-sm ${selectedTable === table.id ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-900"}`}
               onClick={() => setSelectedTable(table.id)}
             >
               <span className="block truncate font-medium">{table.name}</span>
@@ -216,7 +218,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
             }}
             onBeginEdit={beginEdit}
             onCancelEdit={() => setEditingIndex(null)}
-            onDeleteRow={(row) => void deleteRow(row)}
+            onDeleteRows={(rowsToDelete) => void deleteRows(rowsToDelete)}
             onDraftChange={(column, value) => setDraftRow((current) => ({ ...current, [column]: value }))}
             onSaveEdit={(row) => void saveEdit(row)}
           />
