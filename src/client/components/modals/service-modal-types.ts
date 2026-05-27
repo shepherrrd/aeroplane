@@ -1,6 +1,28 @@
-export type ModalTab = "deployments" | "logs" | "environment" | "domains" | "data" | "sql" | "settings";
+export type ModalTab = "overview" | "deployments" | "logs" | "environment" | "domains" | "data" | "sql" | "settings";
 
-export const modalTabs: ModalTab[] = ["deployments", "logs", "environment", "domains", "data", "sql", "settings"];
+export const modalTabs: ModalTab[] = ["overview", "deployments", "logs", "environment", "domains", "data", "sql", "settings"];
+
+export type ServiceRouteTab = "overview" | "deployments" | "logs" | "variables" | "domains" | "data" | "console" | "settings";
+
+export const serviceRouteTabs: ServiceRouteTab[] = ["overview", "deployments", "logs", "variables", "domains", "data", "console", "settings"];
+
+export const modalTabToRouteSegment: Record<ModalTab, ServiceRouteTab> = {
+  overview: "overview",
+  deployments: "deployments",
+  logs: "logs",
+  environment: "variables",
+  domains: "domains",
+  data: "data",
+  sql: "console",
+  settings: "settings"
+};
+
+export function routeSegmentToModalTab(segment?: string): ModalTab {
+  if (segment === "variables") return "environment";
+  if (segment === "console") return "sql";
+  if (segment && modalTabs.includes(segment as ModalTab)) return segment as ModalTab;
+  return "overview";
+}
 
 export type ServiceFormPayload = {
   name: string;
