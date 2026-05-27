@@ -1,4 +1,4 @@
-import type { DatabaseColumn, DatabaseRow } from "../../api";
+import type { DatabaseColumn, DatabaseFilterOperator, DatabaseRow, DatabaseRowFilter } from "../../api";
 
 export type SortDirection = "asc" | "desc";
 
@@ -7,24 +7,9 @@ export type GridSort = {
   direction: SortDirection;
 };
 
-export type FilterOperator =
-  | "equals"
-  | "not_equals"
-  | "contains"
-  | "not_contains"
-  | "starts_with"
-  | "ends_with"
-  | "is_empty"
-  | "is_not_empty"
-  | "greater_than"
-  | "less_than";
+export type FilterOperator = DatabaseFilterOperator;
 
-export type GridFilter = {
-  id: string;
-  column: string;
-  operator: FilterOperator;
-  value: string;
-};
+export type GridFilter = DatabaseRowFilter & { id: string };
 
 export type GridRowItem = {
   row: DatabaseRow;
