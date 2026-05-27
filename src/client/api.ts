@@ -92,6 +92,24 @@ export type DatabaseColumn = {
   primaryKey: boolean;
 };
 
+export type DatabaseFilterOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "starts_with"
+  | "ends_with"
+  | "is_empty"
+  | "is_not_empty"
+  | "greater_than"
+  | "less_than";
+
+export type DatabaseRowFilter = {
+  column: string;
+  operator: DatabaseFilterOperator;
+  value: string;
+};
+
 export type DatabaseTablesResponse = {
   engine: string;
   supported: boolean;
@@ -269,10 +287,15 @@ export const api = {
     request(`/api/services/${serviceId}/domains/${domainId}`, { method: "PATCH", body: JSON.stringify(body) }),
   databaseTables: (serviceId: string) =>
     request<DatabaseTablesResponse>(`/api/services/${serviceId}/database/tables`),
-  databaseRows: (serviceId: string, table: string, limit = 50, offset = 0) =>
-    request<DatabaseRowsResponse>(
-      `/api/services/${serviceId}/database/rows?table=${encodeURIComponent(table)}&limit=${limit}&offset=${offset}`
-    ),
+  databaseRows: (serviceId: string, table: string, limit = 50, offset = 0, filters: DatabaseRowFilter[] = []) => {
+    const params = new URLSearchParams({
+      table,
+      limit: String(limit),
+      offset: String(offset)
+    });
+    if (filters.length > 0) params.set("filters", JSON.stringify(filters));
+    return request<DatabaseRowsResponse>(`/api/services/${serviceId}/database/rows?${params.toString()}`);
+  },
   databaseQuery: (serviceId: string, sql: string) =>
     request<DatabaseQueryResult>(`/api/services/${serviceId}/database/query`, {
       method: "POST",
