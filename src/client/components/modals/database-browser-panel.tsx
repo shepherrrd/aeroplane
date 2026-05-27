@@ -215,7 +215,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
             busy={busy}
             editingIndex={editingIndex}
             draftRow={draftRow}
-            appliedFilterCount={appliedFilters.length}
+            appliedFilters={appliedFilters}
             onAddRecord={() => {
               setInsertDraft(Object.fromEntries(columns.map((column) => [column.name, ""])));
               setInsertError("");
