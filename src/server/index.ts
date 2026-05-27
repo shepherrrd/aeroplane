@@ -43,7 +43,8 @@ import {
   getDatabaseTables,
   insertDatabaseRow,
   runDatabaseQuery,
-  updateDatabaseRow
+  updateDatabaseRow,
+  type DatabaseRowFilter
 } from "./database-console.js";
 
 const app = new Hono();
@@ -105,6 +106,23 @@ const envSchema = z.object({ key: z.string().trim().regex(/^[A-Z_][A-Z0-9_]*$/i)
 const databaseRowValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const databaseRowSchema = z.record(z.string(), databaseRowValueSchema);
 const databaseQuerySchema = z.object({ sql: z.string().trim().min(1) });
+const databaseFilterOperatorSchema = z.enum([
+  "equals",
+  "not_equals",
+  "contains",
+  "not_contains",
+  "starts_with",
+  "ends_with",
+  "is_empty",
+  "is_not_empty",
+  "greater_than",
+  "less_than"
+]);
+const databaseRowsFiltersSchema = z.array(z.object({
+  column: z.string().trim().min(1),
+  operator: databaseFilterOperatorSchema,
+  value: z.string().default("")
+})).max(12);
 const databaseInsertSchema = z.object({
   table: z.string().trim().min(1),
   values: databaseRowSchema
@@ -139,6 +157,13 @@ const updateServiceSchema = z.object({
   databasePublicEnabled: z.boolean().optional(),
   databasePublicHostname: publicHostnameSchema
 });
+
+function parseDatabaseFilters(raw: string | undefined): DatabaseRowFilter[] {
+  if (!raw) return [];
+  const parsed = databaseRowsFiltersSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) throw new Error("Invalid database filters");
+  return parsed.data;
+}
 const domainSchema = z.object({
   hostname: z.string().trim().toLowerCase().regex(hostnameRegex)
 });
@@ -850,7 +875,8 @@ app.get("/api/services/:serviceId/database/rows", async (c) => {
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
-    return c.json(await getDatabaseRows(c.req.param("serviceId"), table, limit, offset));
+    const filters = parseDatabaseFilters(c.req.query("filters"));
+    return c.json(await getDatabaseRows(c.req.param("serviceId"), table, limit, offset, filters));
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not load database rows", 400);
   }
