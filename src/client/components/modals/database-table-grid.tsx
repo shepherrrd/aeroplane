@@ -109,7 +109,8 @@ export function DatabaseTableGrid({
   const draftFilters = filters.filter(isActiveFilter).map(({ column, operator, value }) => ({ column, operator, value: value.trim() }));
   const appliedFilterCount = appliedFilters.length;
   const hasUnappliedFilters = draftFilters.length > 0 && JSON.stringify(draftFilters) !== JSON.stringify(appliedFilters);
-  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every(({ index }) => selectedRows.has(index));
+  const canSelectRows = editable && hasPrimaryKey;
+  const allVisibleSelected = canSelectRows && visibleRows.length > 0 && visibleRows.every(({ index }) => selectedRows.has(index));
 
   function togglePanel(panel: ToolbarPanel) {
     if (panel === "filters" && filters.length === 0) setFilters([createGridFilter(columns)]);
@@ -132,6 +133,7 @@ export function DatabaseTableGrid({
   }
 
   function toggleVisibleRows() {
+    if (!canSelectRows) return;
     setSelectedRows((current) => {
       const next = new Set(current);
       if (allVisibleSelected) {
@@ -144,6 +146,7 @@ export function DatabaseTableGrid({
   }
 
   function toggleRow(index: number) {
+    if (!canSelectRows) return;
     setSelectedRows((current) => {
       const next = new Set(current);
       if (next.has(index)) next.delete(index);
@@ -230,7 +233,7 @@ export function DatabaseTableGrid({
           ) : null}
         </div>
 
-        {selectedItems.length > 0 ? (
+        {canSelectRows && selectedItems.length > 0 ? (
           <button
             type="button"
             className="inline-flex h-8 items-center justify-center gap-2 border border-rose-500/35 bg-rose-500/10 px-2.5 text-[13px] font-medium text-rose-200 transition hover:bg-rose-500/15 disabled:opacity-50"
@@ -272,9 +275,11 @@ export function DatabaseTableGrid({
         <table className="min-w-full border-collapse text-left font-mono text-[13px]">
           <thead className="sticky top-0 z-10 bg-zinc-950 text-zinc-400">
             <tr>
-              <th className="w-10 border-b border-r border-zinc-700 px-2.5 py-2">
-                <Checkbox checked={allVisibleSelected} onChange={toggleVisibleRows} label="Select visible records" />
-              </th>
+              {canSelectRows ? (
+                <th className="w-10 border-b border-r border-zinc-700 px-2.5 py-2">
+                  <Checkbox checked={allVisibleSelected} onChange={toggleVisibleRows} label="Select visible records" />
+                </th>
+              ) : null}
               {visibleColumns.map((column) => {
                 const sorted = sort?.column === column.name;
                 return (
@@ -299,7 +304,7 @@ export function DatabaseTableGrid({
           <tbody>
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + 1} className="px-3 py-6 text-[13px] text-zinc-500">
+                <td colSpan={visibleColumns.length + (canSelectRows ? 1 : 0)} className="px-3 py-6 text-[13px] text-zinc-500">
                   {appliedFilterCount > 0 ? "No records match these filters." : "No rows returned."}
                 </td>
               </tr>
@@ -307,9 +312,11 @@ export function DatabaseTableGrid({
               const selected = selectedRows.has(index);
               return (
                 <tr key={index} className={`border-b border-zinc-800 ${selected ? "bg-zinc-800" : "odd:bg-zinc-950 even:bg-zinc-900/45 hover:bg-zinc-800/60"}`}>
-                  <td className="w-10 border-r border-zinc-800 px-2.5 py-2">
-                    <Checkbox checked={selected} onChange={() => toggleRow(index)} label={`Select record ${index + 1}`} />
-                  </td>
+                  {canSelectRows ? (
+                    <td className="w-10 border-r border-zinc-800 px-2.5 py-2">
+                      <Checkbox checked={selected} onChange={() => toggleRow(index)} label={`Select record ${index + 1}`} />
+                    </td>
+                  ) : null}
                   {visibleColumns.map((column) => {
                     const value = row[column.name];
                     const empty = value === null || value === undefined;
