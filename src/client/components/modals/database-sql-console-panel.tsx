@@ -37,7 +37,7 @@ export function DatabaseSqlConsolePanel({ serviceId }: { serviceId: string }) {
           </div>
         </div>
         <button type="submit" className={shellButton("primary")} disabled={busy}>
-          <AppIcon icon={busy ? Refresh03Icon : PlayCircleIcon} size={15} />
+          <AppIcon icon={busy ? Refresh03Icon : PlayCircleIcon} size={15} className={busy ? "animate-spin" : ""} />
           Run query
         </button>
       </div>
