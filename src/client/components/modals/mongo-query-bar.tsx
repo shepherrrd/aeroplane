@@ -1,4 +1,11 @@
 import { ArrowDown01Icon, Cancel01Icon, Clock01Icon, Search01Icon, StarIcon } from "@hugeicons/core-free-icons";
+import { acceptCompletion, autocompletion, type CompletionContext } from "@codemirror/autocomplete";
+import { javascript } from "@codemirror/lang-javascript";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { Prec } from "@codemirror/state";
+import { keymap, EditorView } from "@codemirror/view";
+import { tags } from "@lezer/highlight";
+import CodeMirror from "@uiw/react-codemirror";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DatabaseRowFilter } from "../../api";
@@ -40,31 +47,6 @@ function upsertQuery(queries: StoredQuery[], text: string) {
   return [{ text: trimmed, savedAt: new Date().toISOString() }, ...queries.filter((item) => item.text !== trimmed)].slice(0, 24);
 }
 
-function queryTokens(source: string) {
-  return source.match(/'[^'\\]*(?:\\.[^'\\]*)*'?|"[^"\\]*(?:\\.[^"\\]*)*"?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?|[$A-Z_a-z][\w$.-]*(?=\s*:)|[{}:[\],]|\s+|./g) ?? [];
-}
-
-function tokenClass(token: string) {
-  if (/^['"]/.test(token)) return "text-emerald-400";
-  if (/^-?\d/.test(token)) return "text-amber-300";
-  if (/^(true|false|null)$/.test(token)) return "text-fuchsia-300";
-  if (/^[$A-Z_a-z][\w$.-]*$/.test(token)) return "text-zinc-100";
-  if (/^[{}:[\],]$/.test(token)) return "text-zinc-500";
-  return "text-zinc-400";
-}
-
-function QueryHighlight({ source }: { source: string }) {
-  return (
-    <>
-      {queryTokens(source).map((token, index) => (
-        <span key={`${token}-${index}`} className={tokenClass(token)}>
-          {token}
-        </span>
-      ))}
-    </>
-  );
-}
-
 function highlightedSuggestion(text: string, needle: string) {
   const index = text.toLowerCase().indexOf(needle.toLowerCase());
   if (!needle || index < 0) return text;
@@ -76,6 +58,91 @@ function highlightedSuggestion(text: string, needle: string) {
     </>
   );
 }
+
+const mongoQueryBasicSetup = {
+  lineNumbers: false,
+  foldGutter: false,
+  highlightActiveLine: false,
+  highlightActiveLineGutter: false,
+  autocompletion: false,
+  searchKeymap: false,
+  foldKeymap: false,
+  completionKeymap: true
+};
+
+const mongoQueryHighlightStyle = HighlightStyle.define([
+  { tag: tags.string, color: "#34d399" },
+  { tag: [tags.number, tags.bool, tags.null], color: "#f59e0b" },
+  { tag: tags.propertyName, color: "#f4f4f5" },
+  { tag: tags.keyword, color: "#e879f9" },
+  { tag: tags.punctuation, color: "#71717a" }
+]);
+
+const mongoQueryEditorTheme = EditorView.theme(
+  {
+    "&": {
+      height: "100%",
+      backgroundColor: "#09090b",
+      color: "#f4f4f5",
+      fontSize: "14px"
+    },
+    ".cm-editor": {
+      backgroundColor: "#09090b"
+    },
+    "&.cm-focused": {
+      outline: "none"
+    },
+    ".cm-scroller": {
+      backgroundColor: "#09090b",
+      overflow: "auto hidden",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+    },
+    ".cm-content": {
+      backgroundColor: "#09090b",
+      minHeight: "42px",
+      padding: "0 16px",
+      lineHeight: "42px",
+      caretColor: "#f4f4f5"
+    },
+    ".cm-line": {
+      padding: "0"
+    },
+    ".cm-cursor": {
+      borderLeftColor: "#f4f4f5"
+    },
+    ".cm-placeholder": {
+      color: "#71717a"
+    },
+    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+      backgroundColor: "rgba(79, 184, 178, 0.22)"
+    },
+    ".cm-activeLine": {
+      backgroundColor: "transparent"
+    },
+    ".cm-gutters": {
+      display: "none"
+    },
+    ".cm-tooltip": {
+      border: "1px solid #3f3f46",
+      backgroundColor: "#09090b",
+      color: "#d4d4d8"
+    },
+    ".cm-tooltip-autocomplete ul li": {
+      padding: "6px 8px",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: "12px"
+    },
+    ".cm-tooltip-autocomplete ul li[aria-selected]": {
+      backgroundColor: "rgba(79, 184, 178, 0.16)",
+      color: "#7fe3dd"
+    },
+    ".cm-completionDetail": {
+      color: "#71717a",
+      marginLeft: "12px"
+    }
+  },
+  { dark: true }
+);
 
 export function MongoQueryBar({
   scopeLabel,
@@ -93,21 +160,17 @@ export function MongoQueryBar({
   onClear: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [queryScrollLeft, setQueryScrollLeft] = useState(0);
   const [activeTab, setActiveTab] = useState<QueryTab>("recents");
   const [recents, setRecents] = useState<StoredQuery[]>([]);
   const [favorites, setFavorites] = useState<StoredQuery[]>([]);
   const syntaxError = mongoQuerySyntaxError(query);
   const trimmedQuery = query.trim();
   const favoriteTexts = useMemo(() => new Set(favorites.map((item) => item.text)), [favorites]);
-  const suggestions = useMemo(() => {
+  const completionQueries = useMemo(() => {
     const search = trimmedQuery.toLowerCase();
-    if (!search) return [];
     const combined = [...favorites, ...recents].filter((item, index, items) => items.findIndex((candidate) => candidate.text === item.text) === index);
-    return combined.filter((item) => item.text.toLowerCase().includes(search)).slice(0, 6);
+    return (search ? combined.filter((item) => item.text.toLowerCase().includes(search)) : combined).slice(0, 24);
   }, [favorites, recents, trimmedQuery]);
 
   useEffect(() => {
@@ -120,25 +183,11 @@ export function MongoQueryBar({
     function onPointerDown(event: PointerEvent) {
       if (!rootRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
-        setInputFocused(false);
       }
     }
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setQueryScrollLeft(inputRef.current?.scrollLeft ?? 0);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [query]);
-
-  function syncQueryScroll() {
-    window.requestAnimationFrame(() => {
-      setQueryScrollLeft(inputRef.current?.scrollLeft ?? 0);
-    });
-  }
 
   function saveRecents(next: StoredQuery[]) {
     setRecents(next);
@@ -155,13 +204,11 @@ export function MongoQueryBar({
     if (syntaxError || busy === "rows") return;
     if (trimmedQuery) saveRecents(upsertQuery(recents, trimmedQuery));
     onFind(mongoQueryToFilters(trimmedQuery), trimmedQuery);
-    setInputFocused(false);
   }
 
   function selectQuery(text: string) {
     onQueryChange(text);
     setMenuOpen(false);
-    setInputFocused(false);
   }
 
   function toggleFavorite(text: string) {
@@ -175,7 +222,47 @@ export function MongoQueryBar({
   }
 
   const listedQueries = activeTab === "recents" ? recents : favorites;
-  const showSuggestions = inputFocused && !menuOpen && suggestions.length > 0;
+  const editorExtensions = [
+    javascript(),
+    syntaxHighlighting(mongoQueryHighlightStyle),
+    autocompletion({
+      activateOnTyping: true,
+      override: [
+        (context: CompletionContext) => {
+          const text = context.state.doc.toString().trim().toLowerCase();
+          if (!context.explicit && !text) return null;
+          const options = completionQueries
+            .filter((item) => !text || item.text.toLowerCase().includes(text))
+            .slice(0, 8)
+            .map((item) => ({
+              label: item.text,
+              type: "text",
+              detail: favoriteTexts.has(item.text) ? "favorite" : "recent",
+              apply: item.text
+            }));
+          if (options.length === 0) return null;
+          return { from: 0, to: context.state.doc.length, options, validFor: /.*/ };
+        }
+      ]
+    }),
+    Prec.highest(keymap.of([
+      {
+        key: "Enter",
+        run: (view) => {
+          if (acceptCompletion(view)) return true;
+          runFind();
+          return true;
+        }
+      }
+    ])),
+    EditorView.contentAttributes.of({
+      autocapitalize: "off",
+      autocomplete: "off",
+      autocorrect: "off",
+      spellcheck: "false"
+    }),
+    mongoQueryEditorTheme
+  ];
 
   return (
     <div ref={rootRef} className="relative mb-3">
@@ -199,34 +286,16 @@ export function MongoQueryBar({
           <AppIcon icon={ArrowDown01Icon} size={13} className={`text-zinc-300 transition ${menuOpen ? "rotate-180" : ""}`} />
         </button>
 
-        <div className="relative h-full min-w-0 flex-1">
-          {query ? (
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <pre
-                className="absolute left-4 top-1/2 m-0 whitespace-pre font-mono text-sm leading-none"
-                style={{ transform: `translate(${-queryScrollLeft}px, -50%)` }}
-              >
-                <QueryHighlight source={query} />
-              </pre>
-            </div>
-          ) : null}
-          <input
-            ref={inputRef}
+        <div className="h-full min-w-0 flex-1 overflow-hidden bg-zinc-950">
+          <CodeMirror
             value={query}
-            onChange={(event) => {
-              onQueryChange(event.target.value);
-              syncQueryScroll();
-            }}
-            onClick={syncQueryScroll}
-            onFocus={() => {
-              setInputFocused(true);
-              syncQueryScroll();
-            }}
-            onKeyUp={syncQueryScroll}
-            onScroll={(event) => setQueryScrollLeft(event.currentTarget.scrollLeft)}
-            className={`relative h-full w-full bg-transparent px-4 font-mono text-sm outline-none placeholder:text-zinc-500 ${query ? "text-transparent caret-zinc-100" : "text-zinc-100"}`}
+            height="42px"
+            basicSetup={mongoQueryBasicSetup}
+            extensions={editorExtensions}
+            onChange={onQueryChange}
             placeholder="Type a query: { field: 'value' }"
-            spellCheck={false}
+            theme="dark"
+            className="h-full bg-zinc-950 [&_.cm-content]:bg-zinc-950 [&_.cm-editor]:bg-zinc-950 [&_.cm-scroller]:bg-zinc-950"
           />
         </div>
 
@@ -268,24 +337,6 @@ export function MongoQueryBar({
       </form>
 
       {syntaxError ? <div className="mt-1 font-mono text-[10px] text-rose-300">{syntaxError}</div> : null}
-
-      {showSuggestions ? (
-        <div className="absolute left-14 right-24 top-full z-40 mt-1 border border-zinc-700 bg-zinc-950 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
-          {suggestions.map((item) => (
-            <button
-              key={item.text}
-              type="button"
-              className="block w-full px-2.5 py-2 text-left font-mono text-xs text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                selectQuery(item.text);
-              }}
-            >
-              {highlightedSuggestion(item.text, trimmedQuery)}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {menuOpen ? (
         <div className="absolute left-0 top-full z-50 mt-2 w-[460px] border border-zinc-700 bg-zinc-950 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
