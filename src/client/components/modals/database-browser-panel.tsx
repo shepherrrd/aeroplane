@@ -1,8 +1,9 @@
-import { Refresh03Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Refresh03Icon } from "@hugeicons/core-free-icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, type DatabaseColumn, type DatabaseRow, type DatabaseRowFilter, type DatabaseRowsResponse, type DatabaseTable } from "../../api";
 import { Dropdown } from "../ui/dropdown";
-import { AppIcon, FieldLabel, FormInput, shellButton } from "../ui/primitives";
+import { AppIcon, shellButton } from "../ui/primitives";
+import { DatabaseInsertSheet, validRedisType } from "./database-insert-sheet";
 import { DatabaseTableGrid } from "./database-table-grid";
 
 function rowValue(value: unknown) {
@@ -20,6 +21,19 @@ const rowCountFormatter = new Intl.NumberFormat();
 function tableRowCountLabel(rowCount: number | null) {
   if (rowCount === null) return "unknown";
   return `${rowCountFormatter.format(rowCount)} row${rowCount === 1 ? "" : "s"}`;
+}
+
+function itemCountLabel(rowCount: number | null, engine: string) {
+  if (rowCount === null) return "unknown";
+  if (engine === "mongodb" || engine === "mongo") return `${rowCountFormatter.format(rowCount)} doc${rowCount === 1 ? "" : "s"}`;
+  if (engine === "redis") return `${rowCountFormatter.format(rowCount)} item${rowCount === 1 ? "" : "s"}`;
+  return tableRowCountLabel(rowCount);
+}
+
+function browserNouns(engine: string) {
+  if (engine === "mongodb" || engine === "mongo") return { list: "Collections", group: "Database", empty: "No collections found.", scopedEmpty: "No collections in this database.", record: "document" };
+  if (engine === "redis") return { list: "Keys", group: "Type", empty: "No keys found.", scopedEmpty: "No keys for this type.", record: "item" };
+  return { list: "Tables", group: "Schema", empty: "No tables found.", scopedEmpty: "No tables in this schema.", record: "row" };
 }
 
 export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
@@ -40,13 +54,21 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
   const [pageSize, setPageSize] = useState(50);
   const [pageOffset, setPageOffset] = useState(0);
   const [selectedSchema, setSelectedSchema] = useState("");
+  const [engine, setEngine] = useState("");
 
   const columns = rowsResult?.columns ?? [];
   const rows = rowsResult?.rows ?? [];
   const hasPrimaryKey = columns.some((column) => column.primaryKey);
+  const nouns = browserNouns(rowsResult?.engine ?? engine);
+  const isRedis = engine === "redis";
+  const isMongo = engine === "mongodb" || engine === "mongo";
+  const canAddDocument = isRedis || isMongo;
 
   const selectedTableName = useMemo(() => {
     return tables.find((table) => table.id === selectedTable)?.name ?? selectedTable;
+  }, [selectedTable, tables]);
+  const selectedTableMeta = useMemo(() => {
+    return tables.find((table) => table.id === selectedTable) ?? null;
   }, [selectedTable, tables]);
   const schemaOptions = useMemo(() => {
     const names = Array.from(new Set(tables.map((table) => table.schema))).filter(Boolean);
@@ -57,10 +79,10 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     return tables.filter((table) => table.schema === selectedSchema);
   }, [selectedSchema, tables]);
 
-  function preferredSchema(nextTables: DatabaseTable[]) {
+  function preferredSchema(nextTables: DatabaseTable[], nextEngine: string) {
     const schemas = Array.from(new Set(nextTables.map((table) => table.schema))).filter(Boolean);
     if (schemas.includes(selectedSchema)) return selectedSchema;
-    if (schemas.includes("public")) return "public";
+    if (["postgres", "mysql", "clickhouse"].includes(nextEngine) && schemas.includes("public")) return "public";
     return schemas[0] ?? "";
   }
 
@@ -71,9 +93,10 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
       const result = await api.databaseTables(serviceId);
       setSupported(result.supported);
       setEditable(result.editable);
+      setEngine(result.engine);
       setTables(result.tables);
       setMessage(result.message ?? "");
-      const nextSchema = preferredSchema(result.tables);
+      const nextSchema = preferredSchema(result.tables, result.engine);
       const nextSelectedTable = result.tables.find((table) => table.id === selectedTable && table.schema === nextSchema)?.id
         ?? result.tables.find((table) => table.schema === nextSchema)?.id
         ?? "";
@@ -94,6 +117,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     try {
       const result = await api.databaseRows(serviceId, table, limit, offset, filters);
       setRowsResult(result);
+      setEngine(result.engine);
       setEditable(result.editable);
       setPageSize(result.limit);
       setPageOffset(result.offset);
@@ -115,6 +139,45 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     )));
   }
 
+  function insertTitle() {
+    if (isRedis) return selectedTable ? "Add item" : "Add key";
+    if (isMongo) return selectedTable ? "Add document" : "Add collection";
+    return "Insert row";
+  }
+
+  function insertButtonLabel() {
+    if (isRedis) return selectedTable ? "Add item" : "Add key";
+    if (isMongo) return "Add document";
+    return "Insert";
+  }
+
+  function openInsertSheet() {
+    if (isRedis) {
+      const type = selectedTableMeta?.schema && selectedTableMeta.schema !== "none"
+        ? selectedTableMeta.schema
+        : selectedSchema || "string";
+      setInsertDraft({
+        key: selectedTable ? selectedTableName : "",
+        type: validRedisType(type) ? type : "string",
+        field: "",
+        member: "",
+        score: "0",
+        value: "",
+        ttl: ""
+      });
+    } else if (isMongo) {
+      setInsertDraft({
+        database: selectedTableMeta?.schema || selectedSchema || "aeroplane",
+        collection: selectedTable ? selectedTableName : "",
+        document: "{\n  \"name\": \"example\"\n}"
+      });
+    } else {
+      setInsertDraft(Object.fromEntries(columns.map((column) => [column.name, ""])));
+    }
+    setInsertError("");
+    setInsertOpen(true);
+  }
+
   function changeSchema(schema: string) {
     setSelectedSchema(schema);
     setSelectedTable(tables.find((table) => table.schema === schema)?.id ?? "");
@@ -126,6 +189,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
   useEffect(() => {
     setSelectedTable("");
     setSelectedSchema("");
+    setEngine("");
     setRowsResult(null);
     setAppliedFilters([]);
     setPageOffset(0);
@@ -187,16 +251,31 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
 
   async function insertRow(event: FormEvent) {
     event.preventDefault();
-    if (!rowsResult) return;
+    if (!rowsResult && !canAddDocument) return;
     setBusy("insert");
     setInsertError("");
     try {
-      await api.insertDatabaseRow(serviceId, {
-        table: rowsResult.table,
+      const table = rowsResult?.table ?? (selectedTable || "__new__");
+      const result = await api.insertDatabaseRow(serviceId, {
+        table,
         values: insertDraft
       });
-      adjustTableRowCount(rowsResult.table, 1);
-      await loadRows(rowsResult.table, appliedFilters, pageOffset, pageSize);
+      setInsertOpen(false);
+
+      if (canAddDocument) {
+        await loadTables();
+        const nextTable = result.table ?? (table === "__new__" ? "" : table);
+        if (nextTable) {
+          if (nextTable === selectedTable) {
+            await loadRows(nextTable, [], 0, pageSize);
+          } else {
+            setSelectedTable(nextTable);
+          }
+        }
+      } else if (rowsResult) {
+        adjustTableRowCount(rowsResult.table, 1);
+        await loadRows(rowsResult.table, appliedFilters, pageOffset, pageSize);
+      }
     } catch (issue) {
       setInsertError(issue instanceof Error ? issue.message : "Could not insert row");
     } finally {
@@ -217,26 +296,26 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     <div className="flex h-full min-h-0 gap-4">
       <aside className="flex min-h-0 w-64 flex-none flex-col overflow-hidden border border-zinc-800 bg-zinc-950/45">
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">Tables</div>
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">{nouns.list}</div>
           <button type="button" className="text-zinc-400 hover:text-zinc-100" onClick={() => void loadTables()} disabled={busy === "tables"} aria-label="Refresh tables">
             <AppIcon icon={Refresh03Icon} size={15} />
           </button>
         </div>
         <div className="border-b border-zinc-800 p-3">
-          <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Schema</div>
+          <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{nouns.group}</div>
           <Dropdown
             value={selectedSchema}
             options={schemaOptions}
             onChange={changeSchema}
             disabled={schemaOptions.length === 0 || busy === "tables"}
-            placeholder="Select schema"
+            placeholder={`Select ${nouns.group.toLowerCase()}`}
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tables.length === 0 ? (
-            <div className="px-4 py-5 text-sm text-zinc-500">No tables found.</div>
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{busy === "tables" ? "Loading..." : nouns.empty}</div>
           ) : visibleTables.length === 0 ? (
-            <div className="px-4 py-5 text-sm text-zinc-500">No tables in this schema.</div>
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{nouns.scopedEmpty}</div>
           ) : visibleTables.map((table) => (
             <button
               key={table.id}
@@ -247,7 +326,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
               <span className="block truncate font-medium">{table.name}</span>
               <span className="mt-1 flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                 <span className="min-w-0 truncate">{table.schema}</span>
-                <span className="shrink-0 text-zinc-400">{tableRowCountLabel(table.rowCount)}</span>
+                <span className="shrink-0 text-zinc-400">{itemCountLabel(table.rowCount, engine)}</span>
               </span>
             </button>
           ))}
@@ -259,10 +338,18 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
           <div>
             <h3 className="font-hero text-xl text-zinc-100">{selectedTableName || "Data"}</h3>
             <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-              {rowsResult ? `${rowsResult.totalRows} total rows` : `${rows.length} loaded rows`}
+              {rowsResult
+                ? `${rowCountFormatter.format(rowsResult.totalRows)} total ${nouns.record}${rowsResult.totalRows === 1 ? "" : "s"}`
+                : `${rowCountFormatter.format(rows.length)} loaded ${nouns.record}${rows.length === 1 ? "" : "s"}`}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canAddDocument ? (
+              <button type="button" className={shellButton("primary")} onClick={openInsertSheet} disabled={busy === "insert"}>
+                <AppIcon icon={Add01Icon} size={15} />
+                {insertButtonLabel()}
+              </button>
+            ) : null}
             <button type="button" className={shellButton("ghost")} onClick={() => void loadRows(selectedTable, appliedFilters, pageOffset, pageSize)} disabled={!selectedTable || busy === "rows"}>
               <AppIcon icon={Refresh03Icon} size={15} />
               Refresh
@@ -278,8 +365,8 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
         ) : null}
 
         {!rowsResult || columns.length === 0 ? (
-          <div className="flex min-h-0 flex-1 items-center border border-zinc-800 bg-zinc-950/45 px-5 py-8 text-sm text-zinc-500">
-            {busy ? "Loading table..." : "Choose a table to inspect rows."}
+          <div className="flex min-h-0 flex-1 items-center justify-center border border-zinc-800 bg-zinc-950/45 px-5 py-8 text-center text-sm text-zinc-500">
+            {busy ? "Loading data..." : `Choose ${engine === "redis" ? "a key" : engine === "mongodb" || engine === "mongo" ? "a collection" : "a table"} to inspect ${nouns.record}s.`}
           </div>
         ) : (
           <DatabaseTableGrid
@@ -295,6 +382,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
               limit: rowsResult.limit,
               offset: rowsResult.offset,
               totalRows: rowsResult.totalRows,
+              recordLabel: nouns.record,
               onPageChange: (offset) => {
                 setPageOffset(offset);
                 void loadRows(rowsResult.table, appliedFilters, offset, rowsResult.limit);
@@ -305,11 +393,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
                 void loadRows(rowsResult.table, appliedFilters, 0, limit);
               }
             }}
-            onAddRecord={() => {
-              setInsertDraft(Object.fromEntries(columns.map((column) => [column.name, ""])));
-              setInsertError("");
-              setInsertOpen(true);
-            }}
+            onAddRecord={openInsertSheet}
             onBeginEdit={beginEdit}
             onCancelEdit={() => setEditingIndex(null)}
             onDeleteRows={(rowsToDelete) => void deleteRows(rowsToDelete)}
@@ -323,45 +407,23 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
           />
         )}
 
-        {insertOpen && rowsResult ? (
-          <div className="fixed bottom-4 right-4 top-4 z-[60] w-full max-w-md border-l border-zinc-700 bg-zinc-950 shadow-[-24px_0_60px_rgba(0,0,0,0.35)]">
-            <form onSubmit={insertRow} className="flex h-full flex-col">
-              <div className="border-b border-zinc-800 px-5 py-4">
-                <div className="font-hero text-lg text-zinc-100">Insert row</div>
-                <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">{selectedTableName}</div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                {insertError ? (
-                  <div className="mb-4 border border-rose-500/30 bg-rose-950/25 px-4 py-3 text-sm text-rose-200">{insertError}</div>
-                ) : null}
-                <div className="space-y-4">
-                  {columns.map((column) => (
-                    <label key={column.name} className="block">
-                      <FieldLabel>{column.name}</FieldLabel>
-                      <FormInput
-                        value={insertDraft[column.name] ?? ""}
-                        onChange={(event) => setInsertDraft({ ...insertDraft, [column.name]: event.target.value })}
-                        placeholder={column.type}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-4">
-                <button
-                  type="button"
-                  className={shellButton("ghost")}
-                  onClick={() => {
-                    setInsertOpen(false);
-                    setInsertError("");
-                  }}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className={shellButton("primary")} disabled={busy === "insert"}>Insert</button>
-              </div>
-            </form>
-          </div>
+        {insertOpen ? (
+          <DatabaseInsertSheet
+            engine={engine}
+            title={insertTitle()}
+            subtitle={selectedTableName || nouns.list}
+            buttonLabel={insertButtonLabel()}
+            columns={columns}
+            draft={insertDraft}
+            error={insertError}
+            busy={busy}
+            onDraftChange={setInsertDraft}
+            onSubmit={insertRow}
+            onClose={() => {
+              setInsertOpen(false);
+              setInsertError("");
+            }}
+          />
         ) : null}
       </section>
     </div>
