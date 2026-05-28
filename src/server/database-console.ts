@@ -1,98 +1,23 @@
-import { spawn } from "node:child_process";
 import { eq } from "drizzle-orm";
 import { containerNameForService, getServiceById } from "./deploy.js";
 import { databaseTypeForService, isDatabaseService } from "./database-urls.js";
+import { getMongoRows, getMongoTables, insertMongoRow } from "./database-mongo-viewer.js";
+import { deleteRedisRow, getRedisRows, getRedisTables, insertRedisRow } from "./database-redis-viewer.js";
+import {
+  activeFiltersForColumns,
+  runDockerExec,
+  type DatabaseColumn,
+  type DatabaseContext,
+  type DatabaseRowFilter,
+  type DatabaseTable,
+  type RowData
+} from "./database-viewer-shared.js";
 import { db } from "./db.js";
-import { envVars, type Service } from "./schema.js";
+import { envVars } from "./schema.js";
 
-export type DatabaseTable = {
-  id: string;
-  schema: string;
-  name: string;
-  rowCount: number | null;
-};
-
-export type DatabaseColumn = {
-  name: string;
-  type: string;
-  nullable: boolean;
-  primaryKey: boolean;
-};
-
-type CommandResult = {
-  stdout: string;
-  stderr: string;
-};
-
-type DatabaseContext = {
-  service: Service;
-  dbType: string;
-  envMap: Map<string, string>;
-  containerName: string;
-};
-
-type RowValue = null | boolean | number | string;
-type RowData = Record<string, RowValue>;
-
-export type DatabaseFilterOperator =
-  | "equals"
-  | "not_equals"
-  | "contains"
-  | "not_contains"
-  | "starts_with"
-  | "ends_with"
-  | "is_empty"
-  | "is_not_empty"
-  | "greater_than"
-  | "less_than";
-
-export type DatabaseRowFilter = {
-  column: string;
-  operator: DatabaseFilterOperator;
-  value: string;
-};
+export type { DatabaseRowFilter } from "./database-viewer-shared.js";
 
 const relationalEngines = new Set(["postgres", "mysql", "clickhouse"]);
-const valueFilterOperators = new Set<DatabaseFilterOperator>([
-  "equals",
-  "not_equals",
-  "contains",
-  "not_contains",
-  "starts_with",
-  "ends_with",
-  "greater_than",
-  "less_than"
-]);
-
-function commandError(stderr: string, stdout: string) {
-  return (stderr || stdout || "Database command failed").trim();
-}
-
-function runDockerExec(containerName: string, command: string[], env: Record<string, string> = {}) {
-  return new Promise<CommandResult>((resolvePromise, reject) => {
-    const envArgs = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
-    const child = spawn("docker", ["exec", ...envArgs, containerName, ...command], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolvePromise({ stdout, stderr });
-      } else {
-        reject(new Error(commandError(stderr, stdout)));
-      }
-    });
-  });
-}
 
 function envMapForService(serviceId: string) {
   const rows = db.select().from(envVars).where(eq(envVars.serviceId, serviceId)).all();
@@ -153,14 +78,6 @@ function mysqlTableSql(table: string) {
 function clickHouseTableSql(table: string) {
   const { schema, name } = splitTableId(table);
   return schema ? `${quoteClickHouseIdentifier(schema)}.${quoteClickHouseIdentifier(name)}` : quoteClickHouseIdentifier(name);
-}
-
-function activeFiltersForColumns(filters: DatabaseRowFilter[], columns: DatabaseColumn[]) {
-  const columnNames = new Set(columns.map((column) => column.name));
-  return filters
-    .filter((filter) => columnNames.has(filter.column))
-    .filter((filter) => !valueFilterOperators.has(filter.operator) || filter.value.trim())
-    .slice(0, 12);
 }
 
 function likePattern(value: string, mode: "contains" | "starts_with" | "ends_with") {
@@ -340,7 +257,7 @@ function unsupportedResponse(ctx: DatabaseContext) {
     supported: false,
     editable: false,
     tables: [] as DatabaseTable[],
-    message: `${ctx.dbType} browsing is not available yet. SQL console is available for PostgreSQL, MySQL, and ClickHouse databases.`
+    message: `${ctx.dbType} browsing is not available yet.`
   };
 }
 
@@ -356,6 +273,8 @@ async function withTableRowCounts(tables: DatabaseTable[], countRows: (tableId: 
 
 export async function getDatabaseTables(serviceId: string) {
   const ctx = databaseContext(serviceId);
+  if (ctx.dbType === "redis") return getRedisTables(ctx);
+  if (ctx.dbType === "mongodb" || ctx.dbType === "mongo") return getMongoTables(ctx);
   if (!relationalEngines.has(ctx.dbType)) return unsupportedResponse(ctx);
 
   if (ctx.dbType === "postgres") {
@@ -420,6 +339,9 @@ export async function getDatabaseRows(serviceId: string, table: string, limit: n
   const ctx = databaseContext(serviceId);
   const safeLimit = Math.min(Math.max(limit || 50, 1), 200);
   const safeOffset = Math.max(offset || 0, 0);
+
+  if (ctx.dbType === "redis") return getRedisRows(ctx, table, safeLimit, safeOffset, filters);
+  if (ctx.dbType === "mongodb" || ctx.dbType === "mongo") return getMongoRows(ctx, table, safeLimit, safeOffset, filters);
 
   if (ctx.dbType === "postgres") {
     const { schema, name } = splitTableId(table);
@@ -572,6 +494,9 @@ export async function insertDatabaseRow(serviceId: string, table: string, values
   const entries = Object.entries(values).filter(([key]) => key.trim());
   if (entries.length === 0) throw new Error("At least one column value is required");
 
+  if (ctx.dbType === "redis") return insertRedisRow(ctx, table, values);
+  if (ctx.dbType === "mongodb" || ctx.dbType === "mongo") return insertMongoRow(ctx, table, values);
+
   if (ctx.dbType === "postgres") {
     await runPostgres(
       ctx,
@@ -619,6 +544,8 @@ export async function updateDatabaseRow(serviceId: string, table: string, primar
 
 export async function deleteDatabaseRow(serviceId: string, table: string, primaryKey: RowData) {
   const ctx = databaseContext(serviceId);
+  if (ctx.dbType === "redis") return deleteRedisRow(ctx, table, primaryKey);
+
   const where = Object.entries(primaryKey).filter(([key]) => key.trim());
   if (where.length === 0) throw new Error("A primary key is required to delete rows");
 
