@@ -15,6 +15,53 @@ export function validRedisType(value: string) {
   return redisTypeOptions.some((option) => option.value === value);
 }
 
+function RedisValueFields({
+  type,
+  draft,
+  onDraftChange
+}: {
+  type: string;
+  draft: Record<string, string>;
+  onDraftChange: (draft: Record<string, string>) => void;
+}) {
+  if (type === "hash") {
+    return (
+      <>
+        <label className="block">
+          <FieldLabel>Field</FieldLabel>
+          <FormInput value={draft.field ?? ""} onChange={(event) => onDraftChange({ ...draft, field: event.target.value })} placeholder="name" required />
+        </label>
+        <label className="block">
+          <FieldLabel>Value</FieldLabel>
+          <FormInput value={draft.value ?? ""} onChange={(event) => onDraftChange({ ...draft, value: event.target.value })} placeholder="value" />
+        </label>
+      </>
+    );
+  }
+
+  if (type === "zset") {
+    return (
+      <>
+        <label className="block">
+          <FieldLabel>Member</FieldLabel>
+          <FormInput value={draft.member ?? ""} onChange={(event) => onDraftChange({ ...draft, member: event.target.value })} placeholder="member" required />
+        </label>
+        <label className="block">
+          <FieldLabel>Score</FieldLabel>
+          <FormInput value={draft.score ?? ""} onChange={(event) => onDraftChange({ ...draft, score: event.target.value })} placeholder="0" />
+        </label>
+      </>
+    );
+  }
+
+  return (
+    <label className="block">
+      <FieldLabel>{type === "list" ? "Item value" : type === "set" ? "Member" : "Value"}</FieldLabel>
+      <FormInput value={draft.value ?? ""} onChange={(event) => onDraftChange({ ...draft, value: event.target.value })} placeholder="value" />
+    </label>
+  );
+}
+
 export function DatabaseInsertSheet({
   engine,
   title,
@@ -24,6 +71,7 @@ export function DatabaseInsertSheet({
   draft,
   error,
   busy,
+  redisMode = "key",
   onDraftChange,
   onClose,
   onSubmit
@@ -36,12 +84,14 @@ export function DatabaseInsertSheet({
   draft: Record<string, string>;
   error: string;
   busy: string;
+  redisMode?: "key" | "item";
   onDraftChange: (draft: Record<string, string>) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
   const isRedis = engine === "redis";
   const isMongo = engine === "mongodb" || engine === "mongo";
+  const redisType = draft.type ?? "string";
 
   return (
     <div className="fixed bottom-4 right-4 top-4 z-[60] w-full max-w-md border-l border-zinc-700 bg-zinc-950 shadow-[-24px_0_60px_rgba(0,0,0,0.35)]">
@@ -56,41 +106,25 @@ export function DatabaseInsertSheet({
           ) : null}
           {isRedis ? (
             <div className="space-y-4">
-              <label className="block">
-                <FieldLabel>Key</FieldLabel>
-                <FormInput value={draft.key ?? ""} onChange={(event) => onDraftChange({ ...draft, key: event.target.value })} placeholder="session:example" required />
-              </label>
-              <label className="block">
-                <FieldLabel>Type</FieldLabel>
-                <Dropdown value={draft.type ?? "string"} options={redisTypeOptions} onChange={(type) => onDraftChange({ ...draft, type })} />
-              </label>
-              {draft.type === "hash" ? (
-                <label className="block">
-                  <FieldLabel>Field</FieldLabel>
-                  <FormInput value={draft.field ?? ""} onChange={(event) => onDraftChange({ ...draft, field: event.target.value })} placeholder="name" required />
-                </label>
-              ) : null}
-              {draft.type === "zset" ? (
+              {redisMode === "key" ? (
                 <>
                   <label className="block">
-                    <FieldLabel>Member</FieldLabel>
-                    <FormInput value={draft.member ?? ""} onChange={(event) => onDraftChange({ ...draft, member: event.target.value })} placeholder="member" required />
+                    <FieldLabel>Key</FieldLabel>
+                    <FormInput value={draft.key ?? ""} onChange={(event) => onDraftChange({ ...draft, key: event.target.value })} placeholder="session:example" required />
                   </label>
                   <label className="block">
-                    <FieldLabel>Score</FieldLabel>
-                    <FormInput value={draft.score ?? ""} onChange={(event) => onDraftChange({ ...draft, score: event.target.value })} placeholder="0" />
+                    <FieldLabel>Type</FieldLabel>
+                    <Dropdown value={redisType} options={redisTypeOptions} onChange={(type) => onDraftChange({ ...draft, type })} />
                   </label>
                 </>
-              ) : (
+              ) : null}
+              <RedisValueFields type={redisType} draft={draft} onDraftChange={onDraftChange} />
+              {redisMode === "key" ? (
                 <label className="block">
-                  <FieldLabel>Value</FieldLabel>
-                  <FormInput value={draft.value ?? ""} onChange={(event) => onDraftChange({ ...draft, value: event.target.value })} placeholder="value" />
+                  <FieldLabel>TTL seconds</FieldLabel>
+                  <FormInput value={draft.ttl ?? ""} onChange={(event) => onDraftChange({ ...draft, ttl: event.target.value })} placeholder="Optional" />
                 </label>
-              )}
-              <label className="block">
-                <FieldLabel>TTL seconds</FieldLabel>
-                <FormInput value={draft.ttl ?? ""} onChange={(event) => onDraftChange({ ...draft, ttl: event.target.value })} placeholder="Optional" />
-              </label>
+              ) : null}
             </div>
           ) : isMongo ? (
             <div className="space-y-4">
