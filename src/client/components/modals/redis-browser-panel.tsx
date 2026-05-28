@@ -13,6 +13,10 @@ import { RedisTtlPopover } from "./redis-ttl-popover";
 type RedisInsertMode = "key" | "item";
 
 const numberFormatter = new Intl.NumberFormat();
+const redisDatabaseOptions = Array.from({ length: 16 }, (_, database) => ({
+  value: String(database),
+  label: `DB ${database}`
+}));
 
 function valueText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -363,6 +367,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
   const [keys, setKeys] = useState<DatabaseTable[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [rowsResult, setRowsResult] = useState<DatabaseRowsResponse | null>(null);
+  const [selectedDatabase, setSelectedDatabase] = useState("0");
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
@@ -394,13 +399,13 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     });
   }, [keys, search, typeFilter]);
 
-  async function loadKeys() {
+  async function loadKeys(logicalDatabase = selectedDatabase, currentKey = selectedKey) {
     setBusy("keys");
     setError("");
     try {
-      const result = await api.databaseTables(serviceId);
+      const result = await api.databaseTables(serviceId, Number(logicalDatabase));
       setKeys(result.tables);
-      const nextKey = result.tables.find((key) => key.id === selectedKey)?.id ?? result.tables[0]?.id ?? "";
+      const nextKey = result.tables.find((key) => key.id === currentKey)?.id ?? result.tables[0]?.id ?? "";
       setSelectedKey(nextKey);
       if (result.tables.length === 0) setRowsResult(null);
       return { tables: result.tables, selected: nextKey };
@@ -433,7 +438,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
 
   function openAddKey() {
     setInsertMode("key");
-    setInsertDraft({ key: "", type: "string", field: "", member: "", score: "0", value: "", ttl: "" });
+    setInsertDraft({ key: "", logicalDatabase: selectedDatabase, type: "string", field: "", member: "", score: "0", value: "", ttl: "" });
     setInsertError("");
     setInsertOpen(true);
   }
@@ -443,6 +448,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     setInsertMode("item");
     setInsertDraft({
       key: selectedKeyMeta.name,
+      logicalDatabase: selectedDatabase,
       type: selectedKeyMeta.schema,
       field: "",
       member: "",
@@ -478,7 +484,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
       const table = insertMode === "item" && selectedKey ? selectedKey : "__new__";
       const result = await api.insertDatabaseRow(serviceId, { table, values: insertDraft });
       setInsertOpen(false);
-      const refreshed = await loadKeys();
+      const refreshed = await loadKeys(selectedDatabase);
       const nextKey = result.table ?? refreshed.selected;
       if (nextKey) {
         setSelectedKey(nextKey);
@@ -507,7 +513,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     try {
       await api.deleteDatabaseRow(serviceId, { table: selectedKey, primaryKey: { key: selectedKeyMeta.name } });
       setDeleteOpen(false);
-      const refreshed = await loadKeys();
+      const refreshed = await loadKeys(selectedDatabase);
       if (refreshed.selected) {
         await loadRows(refreshed.selected);
       } else {
@@ -530,7 +536,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
         table: selectedKey,
         primaryKey: { ...row, key: selectedKeyMeta.name, type: selectedType }
       });
-      const refreshed = await loadKeys();
+      const refreshed = await loadKeys(selectedDatabase);
       const nextKey = refreshed.tables.find((key) => key.id === selectedKey)?.id ?? refreshed.selected;
       if (nextKey) {
         await loadRows(nextKey);
@@ -555,7 +561,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
         primaryKey: { ...row, key: selectedKeyMeta.name, type: selectedType },
         values
       });
-      const refreshed = await loadKeys();
+      const refreshed = await loadKeys(selectedDatabase);
       const nextKey = refreshed.tables.find((key) => key.id === selectedKey)?.id ?? refreshed.selected;
       if (nextKey) {
         await loadRows(nextKey);
@@ -590,21 +596,32 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
 
   useEffect(() => {
     rowsRequestId.current += 1;
+    setSelectedDatabase("0");
     setSelectedKey("");
     setRowsResult(null);
-    void loadKeys();
+    void loadKeys("0", "");
   }, [serviceId]);
 
   useEffect(() => {
     if (selectedKey) void loadRows(selectedKey);
   }, [selectedKey]);
 
+  function changeDatabase(database: string) {
+    rowsRequestId.current += 1;
+    setSelectedDatabase(database);
+    setSelectedKey("");
+    setRowsResult(null);
+    setTypeFilter("all");
+    void loadKeys(database, "");
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
+        <Dropdown value={selectedDatabase} options={redisDatabaseOptions} onChange={changeDatabase} className="w-28" />
         <Dropdown value={typeFilter} options={typeOptions} onChange={setTypeFilter} className="w-44" />
         <FormInput value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search keys" className="min-w-64 flex-1" />
-        <button type="button" className="inline-flex h-11 w-11 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-300 transition hover:border-zinc-500 hover:text-white" onClick={() => void loadKeys()} disabled={busy === "keys"} aria-label="Refresh keys">
+        <button type="button" className="inline-flex h-11 w-11 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-300 transition hover:border-zinc-500 hover:text-white" onClick={() => void loadKeys(selectedDatabase)} disabled={busy === "keys"} aria-label="Refresh keys">
           <AppIcon icon={Refresh03Icon} size={16} />
         </button>
         <button type="button" className={shellButton("primary")} onClick={openAddKey} disabled={busy === "insert"}>
