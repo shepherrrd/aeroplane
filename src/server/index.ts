@@ -862,7 +862,7 @@ app.get("/api/services/:serviceId/suggestion-keys", async (c) => {
 
 app.get("/api/services/:serviceId/database/tables", async (c) => {
   try {
-    return c.json(await getDatabaseTables(c.req.param("serviceId")));
+    return c.json(await getDatabaseTables(c.req.param("serviceId"), Number(c.req.query("database") ?? 0)));
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not load database tables", 400);
   }
