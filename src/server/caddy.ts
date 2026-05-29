@@ -23,10 +23,15 @@ function staticSiteDirForService(serviceId: string) {
   return resolve(config.dataDir, "static-sites", serviceId);
 }
 
-function controlPlaneBlock() {
-  if (!config.controlPlaneHostname) return null;
+function currentControlPlaneHostname() {
+  return String(process.env.CONTROL_PLANE_HOSTNAME ?? config.controlPlaneHostname ?? "").trim().toLowerCase();
+}
 
-  return `${caddyAddress(config.controlPlaneHostname)} {
+function controlPlaneBlock() {
+  const hostname = currentControlPlaneHostname();
+  if (!hostname) return null;
+
+  return `${caddyAddress(hostname)} {
   encode zstd gzip
   reverse_proxy 127.0.0.1:${config.port}
 }`;
@@ -70,11 +75,12 @@ export function renderCaddyfile() {
   if (controlPlane) {
     blocks.push(controlPlane);
   }
+  const controlPlaneHostname = currentControlPlaneHostname();
 
   for (const row of domainMappings) {
     const isDatabase = row.repoUrl === "database" || (row.repoFullName?.startsWith("database:") ?? false);
     if (isDatabase) continue;
-    if (config.controlPlaneHostname && row.hostname === config.controlPlaneHostname) continue;
+    if (controlPlaneHostname && row.hostname === controlPlaneHostname) continue;
 
     if (row.staticOutput) {
       blocks.push(`${caddyAddress(row.hostname)} {
