@@ -12,7 +12,7 @@ It currently supports:
 - Manual and push-triggered deployments.
 - Railpack-based builds through BuildKit.
 - Docker service orchestration with zero-downtime container swaps.
-- Generated service domains from a root domain.
+- Generated service domains from a wildcard root domain.
 - Custom domains through Caddy.
 - Environment variable management.
 - PostgreSQL, Redis, and MongoDB services.
@@ -33,6 +33,8 @@ The installer creates `/opt/aeroplane`, writes a production `.env`, creates a Do
 - `deploy-caddy` on host ports `80` and `443`
 
 After installation, open the printed URL and complete onboarding in the browser.
+
+During onboarding you can set a dashboard domain, for example `pilot.example.com`. Point that hostname at the VPS and Aeroplane will write the Caddy route for the control plane. The raw `http://IP:4310` URL remains available as a fallback.
 
 ### Install Options
 
@@ -122,12 +124,19 @@ The app details can be entered during onboarding or later in system settings.
 
 ## Domains
 
-Set a root domain in onboarding or system settings to generate service hostnames automatically.
+Set a dashboard domain in onboarding or system settings to serve Aeroplane itself through Caddy:
+
+```txt
+A     pilot.example.com     YOUR_SERVER_IPV4
+AAAA  pilot.example.com     YOUR_SERVER_IPV6
+```
+
+Set a wildcard root domain in onboarding or system settings to generate service hostnames automatically.
 
 Example:
 
 ```txt
-Root domain: pilot.example.com
+Wildcard root domain: *.pilot.example.com
 Service URL: api.pilot.example.com
 ```
 
