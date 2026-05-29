@@ -74,6 +74,45 @@ export const domains = sqliteTable("domains", {
   updatedAt: text("updated_at").notNull()
 });
 
+export const databaseBackups = sqliteTable("database_backups", {
+  id: text("id").primaryKey(),
+  serviceId: text("project_id").notNull(),
+  engine: text("engine").notNull(),
+  status: text("status").notNull(),
+  storage: text("storage").notNull(),
+  format: text("format").notNull(),
+  localPath: text("local_path"),
+  r2Key: text("r2_key"),
+  sizeBytes: integer("size_bytes"),
+  checksum: text("checksum"),
+  error: text("error"),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at")
+});
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  lastLoginAt: text("last_login_at")
+});
+
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  createdAt: text("created_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  expiresAt: text("expires_at").notNull()
+});
+
 export type ProjectGroup = typeof projectGroups.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
@@ -81,3 +120,6 @@ export type NewDeployment = typeof deployments.$inferInsert;
 export type DeploymentLog = typeof deploymentLogs.$inferSelect;
 export type EnvVar = typeof envVars.$inferSelect;
 export type Domain = typeof domains.$inferSelect;
+export type DatabaseBackup = typeof databaseBackups.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type AuthSession = typeof authSessions.$inferSelect;
