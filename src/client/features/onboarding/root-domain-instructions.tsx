@@ -1,15 +1,12 @@
 import { CopyCheckIcon, CopyIcon } from "@hugeicons/core-free-icons";
 import { useState } from "react";
 import { AppIcon } from "../../components/ui/primitives";
-
-function cleanDomain(value: string) {
-  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/\.+$/, "");
-}
+import { normalizeRootDomain, wildcardRootDomain } from "../../lib/root-domain";
 
 export function RootDomainInstructions({ rootDomain, publicIp }: { rootDomain: string; publicIp: string }) {
   const [copied, setCopied] = useState(false);
-  const normalizedDomain = cleanDomain(rootDomain);
-  const wildcardHostname = normalizedDomain ? `*.${normalizedDomain}` : "*.pilot.aeroplane.run";
+  const normalizedDomain = normalizeRootDomain(rootDomain);
+  const wildcardHostname = wildcardRootDomain(rootDomain) || "*.pilot.aeroplane.run";
 
   async function copyIp() {
     try {
