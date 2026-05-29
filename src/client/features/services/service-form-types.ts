@@ -1,6 +1,6 @@
 export type ServiceFormPayload = {
   name: string;
-  repoFullName: string;
+  repoFullName?: string | null;
   repoUrl?: string;
   branch: string;
   rootDir?: string;
