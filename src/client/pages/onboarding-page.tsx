@@ -20,6 +20,7 @@ import { RootDomainStep } from "../features/onboarding/root-domain-step";
 import { RuntimeStep } from "../features/onboarding/runtime-step";
 import { defaultOnboardingForm, type OnboardingForm } from "../features/onboarding/onboarding-types";
 import { usePageTitle } from "../lib/page-title";
+import { isWildcardRootDomain, normalizeRootDomain } from "../lib/root-domain";
 
 type OnboardingStepKey = "owner" | "runtime" | "github" | "root-domain" | "backups";
 
@@ -54,6 +55,7 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
       caddyReloadCmd: form.caddyReloadCmd.trim(),
       port: Number(form.port),
       publicUrl: form.publicUrl.trim(),
+      controlPlaneHostname: clean(form.controlPlaneHostname),
       hostPortStart: Number(form.hostPortStart),
       hostPortEnd: Number(form.hostPortEnd),
       buildkitHost: form.buildkitHost.trim(),
@@ -65,7 +67,7 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
       githubAppPrivateKey: clean(form.githubAppPrivateKey),
       githubWebhookSecret: clean(form.githubWebhookSecret)
     },
-    rootDomain: clean(form.rootDomain),
+    rootDomain: clean(normalizeRootDomain(form.rootDomain)),
     r2: r2Provided
       ? {
           accountId: clean(form.r2AccountId),
@@ -126,6 +128,9 @@ export function OnboardingPage() {
     if (activeStep === "runtime") {
       if (!form.dataDir.trim() || !form.publicUrl.trim() || !form.caddyConfigPath.trim() || !form.caddyReloadCmd.trim()) return "Runtime fields are required.";
       if (Number(form.hostPortStart) > Number(form.hostPortEnd)) return "Host port start must be lower than host port end.";
+    }
+    if (activeStep === "root-domain" && !isWildcardRootDomain(form.rootDomain)) {
+      return "Root domain must be a wildcard hostname like *.pilot.aeroplane.run.";
     }
     if (activeStep === "backups") {
       const r2Values = [form.r2AccountId, form.r2Bucket, form.r2AccessKeyId, form.r2SecretAccessKey].filter((value) => value.trim());
