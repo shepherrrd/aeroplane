@@ -135,6 +135,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./.env:/app/.env.local
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
