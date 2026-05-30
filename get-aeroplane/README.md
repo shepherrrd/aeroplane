@@ -28,5 +28,3 @@ The app listens on `PORT`, defaulting to `3000`.
 docker build -t get-aeroplane .
 docker run -p 3000:3000 get-aeroplane
 ```
-
-The installer pulls `ghcr.io/akinloluwami/aeroplane:latest`, so publish that image before pointing users at the endpoint.
