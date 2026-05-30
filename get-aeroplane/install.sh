@@ -109,6 +109,7 @@ write_env_file() {
 
   cat > "$env_file" <<EOF
 AEROPLANE_IMAGE=$IMAGE
+AEROPLANE_INSTALL_DIR=$INSTALL_DIR
 AEROPLANE_SECRET_KEY=$secret_key
 DATA_DIR=/data
 DEPLOY_DRY_RUN=false
@@ -121,6 +122,7 @@ DEPLOY_HOST_PORT_START=$HOST_PORT_START
 DEPLOY_HOST_PORT_END=$HOST_PORT_END
 BUILDKIT_HOST=tcp://127.0.0.1:1234
 AEROPLANE_RUNTIME_NETWORK=aeroplane-runtime
+AEROPLANE_IMAGE_UPDATE_CMD="docker rm -f aeroplane-self-updater >/dev/null 2>&1 || true; docker run -d --name aeroplane-self-updater -v /var/run/docker.sock:/var/run/docker.sock -v $INSTALL_DIR:/work -w /work $IMAGE sh -lc 'docker compose pull aeroplane && docker compose up -d --no-deps aeroplane'"
 EOF
 }
 
