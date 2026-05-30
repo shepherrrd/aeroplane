@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { domains, services } from "./schema.js";
+import { configuredControlPlaneHostname } from "./system-settings.js";
 
 function shellWords(command: string) {
   return command.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
@@ -24,7 +25,7 @@ function staticSiteDirForService(serviceId: string) {
 }
 
 function currentControlPlaneHostname() {
-  return String(process.env.CONTROL_PLANE_HOSTNAME ?? config.controlPlaneHostname ?? "").trim().toLowerCase();
+  return configuredControlPlaneHostname();
 }
 
 function currentCaddyConfigPath() {
