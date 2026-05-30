@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { config } from "./config.js";
 import { db, nowIso } from "./db.js";
 import { authSessions, users, type User } from "./schema.js";
+import { configuredControlPlaneHostname } from "./system-settings.js";
 
 const sessionCookie = "aeroplane_session";
 const sessionDays = 30;
@@ -42,7 +43,7 @@ function currentPublicUrl() {
 }
 
 function currentControlPlaneHostname() {
-  return String(process.env.CONTROL_PLANE_HOSTNAME ?? config.controlPlaneHostname ?? "").trim().toLowerCase();
+  return configuredControlPlaneHostname();
 }
 
 function passwordHash(password: string) {
