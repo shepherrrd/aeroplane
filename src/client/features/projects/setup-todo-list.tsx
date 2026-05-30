@@ -133,7 +133,7 @@ export function SetupTodoList({
         if (githubStatus?.mode === "app" && githubStatus.installUrl) {
           onOpenGitHubInstall();
         } else {
-          window.location.assign("/onboarding");
+          onOpenSettings("github");
         }
       }
     });
