@@ -167,6 +167,14 @@ const r2ConnectionSchema = z.object({
   secretAccessKey: z.string().min(1).optional(),
   createBucket: z.boolean().optional().default(true)
 });
+const githubSettingsSchema = z.object({
+  githubAccessToken: z.string().optional().default(""),
+  githubAppId: z.string().trim().optional().default(""),
+  githubAppClientId: z.string().trim().optional().default(""),
+  githubAppSlug: z.string().trim().optional().default(""),
+  githubAppPrivateKey: z.string().optional().default(""),
+  githubWebhookSecret: z.string().optional().default("")
+});
 const loginSchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
   password: z.string().min(1)
@@ -646,6 +654,72 @@ function publicAuthStatus(c: Parameters<typeof getCurrentUser>[0]) {
   };
 }
 
+function currentGithubEnv() {
+  return {
+    githubAccessToken: process.env.GITHUB_ACCESS_TOKEN ?? config.githubAccessToken,
+    githubAppId: process.env.GITHUB_APP_ID ?? config.githubAppId,
+    githubAppClientId: process.env.GITHUB_APP_CLIENT_ID ?? config.githubAppClientId,
+    githubAppSlug: process.env.GITHUB_APP_SLUG ?? config.githubAppSlug,
+    githubAppPrivateKey: (process.env.GITHUB_APP_PRIVATE_KEY ?? config.githubAppPrivateKey).replace(/\\n/g, "\n"),
+    githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET ?? config.githubWebhookSecret
+  };
+}
+
+function secretSuffix(value: string) {
+  return value ? value.slice(-6) : "";
+}
+
+async function publicGithubSettings() {
+  const env = currentGithubEnv();
+  let statusError = "";
+  const status = await githubConnectionStatus().catch((error) => {
+    statusError = error instanceof Error ? error.message : "Could not check GitHub connection";
+    return {
+      appConfigured: Boolean(env.githubAppId && env.githubAppPrivateKey),
+      connected: false,
+      installationCount: 0,
+      installed: false,
+      installUrl: env.githubAppSlug ? `https://github.com/apps/${env.githubAppSlug}/installations/new` : null,
+      mode: env.githubAppId && env.githubAppPrivateKey ? "app" as const : env.githubAccessToken ? "token" as const : "none" as const
+    };
+  });
+  return {
+    status,
+    statusError,
+    settings: {
+      githubAccessTokenSuffix: secretSuffix(env.githubAccessToken),
+      githubAppId: env.githubAppId,
+      githubAppClientId: env.githubAppClientId,
+      githubAppSlug: env.githubAppSlug,
+      githubAppPrivateKeyConfigured: Boolean(env.githubAppPrivateKey),
+      githubWebhookSecretSuffix: secretSuffix(env.githubWebhookSecret),
+      envPath: managedEnvPath()
+    }
+  };
+}
+
+function updateGithubRuntimeEnv(values: ReturnType<typeof currentGithubEnv>) {
+  process.env.GITHUB_ACCESS_TOKEN = values.githubAccessToken;
+  process.env.GITHUB_APP_ID = values.githubAppId;
+  process.env.GITHUB_APP_CLIENT_ID = values.githubAppClientId;
+  process.env.GITHUB_APP_SLUG = values.githubAppSlug;
+  process.env.GITHUB_APP_PRIVATE_KEY = values.githubAppPrivateKey;
+  process.env.GITHUB_WEBHOOK_SECRET = values.githubWebhookSecret;
+
+  config.githubAccessToken = values.githubAccessToken;
+  config.githubAppId = values.githubAppId;
+  config.githubAppClientId = values.githubAppClientId;
+  config.githubAppSlug = values.githubAppSlug;
+  config.githubAppPrivateKey = values.githubAppPrivateKey;
+  config.githubWebhookSecret = values.githubWebhookSecret;
+}
+
+function resolveMaskedSecret(input: string, existing: string) {
+  const value = input.trim();
+  if (value.startsWith("******")) return existing;
+  return value;
+}
+
 async function applyOnboardingSettings(input: z.infer<typeof restartOnboardingSchema>, options: { generateSecretKeyIfMissing: boolean }) {
   const secretKey = input.env.secretKey || process.env.AEROPLANE_SECRET_KEY || config.secretKey || (options.generateSecretKeyIfMissing ? generateSecretKey() : "");
   const managedEnv = {
@@ -703,6 +777,7 @@ async function applyOnboardingSettings(input: z.infer<typeof restartOnboardingSc
   }
 
   const envPath = writeManagedEnv(managedEnv);
+  updateGithubRuntimeEnv(currentGithubEnv());
   saveSystemSettings({
     ...settings,
     rootDomain: input.rootDomain === undefined ? settings.rootDomain : normalizeRootDomain(input.rootDomain),
@@ -867,6 +942,69 @@ app.post("/api/system/r2", async (c) => {
 app.delete("/api/system/r2", (c) => {
   saveSystemSettings({ ...getSystemSettings(), r2: null });
   return c.json({ ok: true, r2: publicR2Settings({ rootDomain: getSystemSettings().rootDomain, r2: null }) });
+});
+
+app.get("/api/system/github", async (c) => {
+  try {
+    return c.json(await publicGithubSettings());
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Could not load GitHub settings", 503);
+  }
+});
+
+app.post("/api/system/github", async (c) => {
+  const body = githubSettingsSchema.safeParse(await c.req.json());
+  if (!body.success) {
+    return jsonError(body.error.issues[0]?.message ?? "Invalid GitHub settings");
+  }
+
+  const existing = currentGithubEnv();
+  const next = {
+    githubAccessToken: resolveMaskedSecret(body.data.githubAccessToken, existing.githubAccessToken),
+    githubAppId: body.data.githubAppId,
+    githubAppClientId: body.data.githubAppClientId,
+    githubAppSlug: body.data.githubAppSlug,
+    githubAppPrivateKey: body.data.githubAppPrivateKey.trim() ? body.data.githubAppPrivateKey.replace(/\\n/g, "\n") : existing.githubAppPrivateKey,
+    githubWebhookSecret: resolveMaskedSecret(body.data.githubWebhookSecret, existing.githubWebhookSecret)
+  };
+
+  writeManagedEnvPatch({
+    GITHUB_ACCESS_TOKEN: next.githubAccessToken,
+    GITHUB_APP_ID: next.githubAppId,
+    GITHUB_APP_CLIENT_ID: next.githubAppClientId,
+    GITHUB_APP_SLUG: next.githubAppSlug,
+    GITHUB_APP_PRIVATE_KEY: next.githubAppPrivateKey,
+    GITHUB_WEBHOOK_SECRET: next.githubWebhookSecret
+  });
+  updateGithubRuntimeEnv(next);
+
+  try {
+    return c.json({ ok: true, ...(await publicGithubSettings()) });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "GitHub settings saved, but status check failed", 503);
+  }
+});
+
+app.delete("/api/system/github", async (c) => {
+  const next = {
+    githubAccessToken: "",
+    githubAppId: "",
+    githubAppClientId: "",
+    githubAppSlug: "",
+    githubAppPrivateKey: "",
+    githubWebhookSecret: ""
+  };
+  writeManagedEnvPatch({
+    GITHUB_ACCESS_TOKEN: "",
+    GITHUB_APP_ID: "",
+    GITHUB_APP_CLIENT_ID: "",
+    GITHUB_APP_SLUG: "",
+    GITHUB_APP_PRIVATE_KEY: "",
+    GITHUB_WEBHOOK_SECRET: ""
+  });
+  updateGithubRuntimeEnv(next);
+
+  return c.json({ ok: true, ...(await publicGithubSettings()) });
 });
 
 app.get("/api/system/updates", async (c) => c.json(await getSystemUpdateInfo()));
