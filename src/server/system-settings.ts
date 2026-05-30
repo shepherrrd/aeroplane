@@ -5,6 +5,7 @@ import { decryptSecret, encryptSecret } from "./secret-crypto.js";
 
 export interface SystemSettings {
   rootDomain: string;
+  controlPlaneHostname: string;
   r2?: R2Settings | null;
 }
 
@@ -64,6 +65,7 @@ export function getSystemSettings(): SystemSettings {
       const parsed = JSON.parse(data) as Partial<SystemSettings>;
       return {
         rootDomain: parsed.rootDomain ?? "",
+        controlPlaneHostname: parsed.controlPlaneHostname ?? "",
         r2: decryptR2Settings(parsed.r2 ?? null)
       };
     }
@@ -72,6 +74,7 @@ export function getSystemSettings(): SystemSettings {
   }
   return {
     rootDomain: "",
+    controlPlaneHostname: "",
     r2: null
   };
 }
@@ -82,6 +85,22 @@ export function saveSystemSettings(settings: SystemSettings): void {
   } catch (error) {
     console.error("Failed to save system settings:", error);
   }
+}
+
+function publicUrlHostname() {
+  try {
+    const hostname = new URL(process.env.PUBLIC_URL ?? config.publicUrl).hostname.toLowerCase();
+    if (!hostname || hostname === "localhost" || hostname === "::1") return "";
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return "";
+    return hostname;
+  } catch {
+    return "";
+  }
+}
+
+export function configuredControlPlaneHostname(settings = getSystemSettings()) {
+  const envHostname = String(process.env.CONTROL_PLANE_HOSTNAME ?? config.controlPlaneHostname ?? "").trim().toLowerCase();
+  return envHostname || String(settings.controlPlaneHostname ?? "").trim().toLowerCase() || publicUrlHostname();
 }
 
 export function publicR2Settings(settings = getSystemSettings()): PublicR2Settings {
