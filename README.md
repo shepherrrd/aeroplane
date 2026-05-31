@@ -55,8 +55,6 @@ Common options:
 - `AEROPLANE_REPO_BRANCH`: Git branch to install and update from, default `main`
 - `AEROPLANE_PUBLIC_URL`: public URL written to `PUBLIC_URL`
 - `AEROPLANE_PORT`: control-plane port, default `4310`
-- `AEROPLANE_HOST_PORT_START`: first deployable host port, default `4100`
-- `AEROPLANE_HOST_PORT_END`: last deployable host port, default `4999`
 
 ### Managing The Install
 
