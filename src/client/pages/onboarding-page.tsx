@@ -56,8 +56,6 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
       port: Number(form.port),
       publicUrl: form.publicUrl.trim(),
       controlPlaneHostname: clean(form.controlPlaneHostname),
-      hostPortStart: Number(form.hostPortStart),
-      hostPortEnd: Number(form.hostPortEnd),
       buildkitHost: form.buildkitHost.trim(),
       runtimeNetworkName: form.runtimeNetworkName.trim(),
       githubAccessToken: clean(form.githubAccessToken),
@@ -130,8 +128,6 @@ export function OnboardingPage() {
         port: String(runtime.port),
         publicUrl: runtime.publicUrl,
         controlPlaneHostname: runtime.controlPlaneHostname,
-        hostPortStart: String(runtime.hostPortStart),
-        hostPortEnd: String(runtime.hostPortEnd),
         buildkitHost: runtime.buildkitHost,
         runtimeNetworkName: runtime.runtimeNetworkName
       }));
@@ -160,7 +156,6 @@ export function OnboardingPage() {
     }
     if (activeStep === "runtime") {
       if (!form.dataDir.trim() || !form.publicUrl.trim() || !form.caddyConfigPath.trim() || !form.caddyReloadCmd.trim()) return "Runtime fields are required.";
-      if (Number(form.hostPortStart) > Number(form.hostPortEnd)) return "Host port start must be lower than host port end.";
     }
     if (activeStep === "root-domain" && !isWildcardRootDomain(form.rootDomain)) {
       return "Root domain must be a wildcard hostname like *.pilot.aeroplane.run.";
