@@ -17,7 +17,7 @@ function caddyAddress(hostname: string) {
 }
 
 function localPortAddress(hostPort: number) {
-  return `:${hostPort}`;
+  return `http://:${hostPort}`;
 }
 
 function staticSiteDirForService(serviceId: string) {
@@ -59,7 +59,7 @@ export function renderCaddyfile() {
     })
     .from(domains)
     .innerJoin(services, eq(services.id, domains.serviceId))
-    .where(and(eq(domains.status, "active"), inArray(services.status, ["active", "building"])))
+    .where(and(inArray(domains.status, ["active", "pending"]), inArray(services.status, ["active", "building"])))
     .all();
 
   const appServices = db
