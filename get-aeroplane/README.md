@@ -8,6 +8,8 @@ curl -fsSL https://get.aeroplane.run | sh
 
 Deploy this directory anywhere that can serve `get.aeroplane.run`.
 
+The served installer clones `akinloluwami/aeroplane`, builds it on the VPS, runs the control plane with systemd, and keeps Docker Compose only for BuildKit and Caddy.
+
 ## Routes
 
 - `GET /` serves `install.sh`
@@ -33,6 +35,23 @@ npm start
 ```
 
 The app listens on `PORT`, defaulting to `3000`.
+
+## Installer Options
+
+Common options passed to `sh`:
+
+```bash
+curl -fsSL https://get.aeroplane.run | \
+  AEROPLANE_REPO_BRANCH=main \
+  AEROPLANE_PUBLIC_URL=https://pilot.example.com \
+  sh
+```
+
+- `AEROPLANE_HOME`: install directory, default `/opt/aeroplane`
+- `AEROPLANE_REPO_URL`: Git repository to clone
+- `AEROPLANE_REPO_BRANCH`: branch to install and update from
+- `AEROPLANE_PUBLIC_URL`: initial public URL written into the environment
+- `AEROPLANE_PORT`: control-plane port, default `4310`
 
 ## Docker
 
