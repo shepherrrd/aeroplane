@@ -14,6 +14,7 @@ import { BrandMark } from "../components/ui/brand-mark";
 import { AppIcon } from "../components/ui/primitives";
 import { BackupsStep } from "../features/onboarding/backups-step";
 import { GitHubStep } from "../features/onboarding/github-step";
+import { MigrationImportPanel } from "../features/onboarding/migration-import-panel";
 import { OnboardingThread } from "../features/onboarding/onboarding-thread";
 import { OwnerStep } from "../features/onboarding/owner-step";
 import { RootDomainStep } from "../features/onboarding/root-domain-step";
@@ -224,6 +225,8 @@ export function OnboardingPage() {
           </div>
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">Step {step + 1} of {activeSteps.length}</div>
         </header>
+
+        {!restartMode ? <MigrationImportPanel /> : null}
 
         <OnboardingThread steps={activeSteps} activeStep={step} onStepChange={setStep} />
 
