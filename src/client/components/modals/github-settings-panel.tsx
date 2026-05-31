@@ -150,7 +150,12 @@ export function GitHubSettingsPanel({ open }: { open: boolean }) {
               </div>
               <div>
                 <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">GitHub integration</div>
-                <h3 className="mt-1 font-hero text-xl tracking-tight text-zinc-100">{modeLabel(github)}</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h3 className="font-hero text-xl tracking-tight text-zinc-100">{modeLabel(github)}</h3>
+                  <span className={`px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] ${statusClass(status)}`}>
+                    {connected ? "Connected" : appConfigured ? "Needs install" : "Not configured"}
+                  </span>
+                </div>
                 <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
                   Configure the GitHub credentials Aeroplane uses to browse repositories, read branches, and receive deployment webhooks.
                 </p>
@@ -158,9 +163,6 @@ export function GitHubSettingsPanel({ open }: { open: boolean }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] ${statusClass(status)}`}>
-                {connected ? "Connected" : appConfigured ? "Needs install" : "Not configured"}
-              </span>
               <button type="button" className="inline-flex h-9 w-9 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-300 transition hover:border-[#4FB8B2]/45 hover:bg-[#4FB8B2]/10 hover:text-[#7fe3dd]" onClick={() => setEditing(true)} title="Edit GitHub settings" aria-label="Edit GitHub settings">
                 <AppIcon icon={PencilEdit02Icon} size={15} />
               </button>
