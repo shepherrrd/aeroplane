@@ -167,6 +167,30 @@ export type DatabaseBackup = {
   finishedAt: null | string;
 };
 
+export type ServiceImportSource = {
+  id: string;
+  serviceId: string;
+  provider: string;
+  externalProjectId: null | string;
+  externalEnvironmentId: null | string;
+  externalServiceId: string;
+  externalServiceName: null | string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PostgresDataImportResult = {
+  ok: true;
+  serviceId: string;
+  source: "postgres-url" | "railway";
+  sourceLabel: string;
+  sourceVariableKey?: string;
+  dumpSizeBytes: number;
+  checksum: string;
+  importedAt: string;
+};
+
 export type AuthUser = {
   id: string;
   name: string;
@@ -652,5 +676,17 @@ export const api = {
   deleteDatabaseBackup: (serviceId: string, backupId: string) =>
     request<{ ok: boolean }>(`/api/services/${serviceId}/database/backups/${backupId}`, { method: "DELETE" }),
   databaseBackupDownloadUrl: (serviceId: string, backupId: string) =>
-    `/api/services/${serviceId}/database/backups/${backupId}/download`
+    `/api/services/${serviceId}/database/backups/${backupId}/download`,
+  serviceImportSources: (serviceId: string) =>
+    request<{ sources: ServiceImportSource[] }>(`/api/services/${serviceId}/import-sources`),
+  importPostgresDataFromUrl: (serviceId: string, sourceUrl: string) =>
+    request<{ result: PostgresDataImportResult }>(`/api/services/${serviceId}/database/import/postgres-url`, {
+      method: "POST",
+      body: JSON.stringify({ sourceUrl })
+    }),
+  importPostgresDataFromRailway: (serviceId: string, apiToken: string) =>
+    request<{ result: PostgresDataImportResult }>(`/api/services/${serviceId}/database/import/railway`, {
+      method: "POST",
+      body: JSON.stringify({ apiToken })
+    })
 };
