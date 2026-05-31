@@ -263,15 +263,15 @@ export function OnboardingPage() {
           </div>
         </form>
 
-        {!restartMode ? (
-          <div className="flex justify-center border-t border-zinc-800 pt-5">
-            <button type="button" className={shellButton("secondary")} onClick={() => setMigrationImportOpen(true)}>
-              <AppIcon icon={DatabaseExportIcon} size={14} />
-              Import existing Aeroplane
-            </button>
-          </div>
-        ) : null}
       </div>
+      {!restartMode ? (
+        <div className="fixed bottom-6 left-1/2 z-20 -translate-x-1/2">
+          <button type="button" className={`${shellButton("secondary")} bg-zinc-950/90 shadow-[0_18px_45px_rgba(0,0,0,0.35)] backdrop-blur`} onClick={() => setMigrationImportOpen(true)}>
+            <AppIcon icon={DatabaseExportIcon} size={14} />
+            Import existing Aeroplane
+          </button>
+        </div>
+      ) : null}
       <MigrationImportModal open={migrationImportOpen} onClose={() => setMigrationImportOpen(false)} />
     </main>
   );
