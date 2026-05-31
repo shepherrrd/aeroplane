@@ -14,7 +14,7 @@ import { getRailwayServiceVariables } from "./railway-importer.js";
 import { getRailwayImportSource } from "./service-import-sources.js";
 import { envVars, type Service } from "./schema.js";
 
-const postgresDumpImage = "postgres:17-alpine";
+const postgresDumpImage = "postgres:18-alpine";
 
 type CommandResult = {
   stdout: string;
