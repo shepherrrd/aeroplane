@@ -2,6 +2,7 @@ import { CheckmarkCircle02Icon, Refresh03Icon } from "@hugeicons/core-free-icons
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type SystemUpdateInfo, type SystemUpdateRun } from "../../api";
 import { AppIcon, shellButton, statusClass } from "../ui/primitives";
+import { UpdateConfirmationModal } from "./update-confirmation-modal";
 
 function formatCommitDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -55,6 +56,7 @@ export function UpdatesSettingsPanel({ open }: { open: boolean }) {
   const [info, setInfo] = useState<SystemUpdateInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [confirmingUpdate, setConfirmingUpdate] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const handledRunRef = useRef("");
@@ -118,9 +120,8 @@ export function UpdatesSettingsPanel({ open }: { open: boolean }) {
 
   async function applyUpdate() {
     if (!info || info.status !== "available") return;
-    const confirmed = window.confirm("Update Aeroplane now? The app may restart after the build finishes.");
-    if (!confirmed) return;
 
+    setConfirmingUpdate(false);
     setApplying(true);
     setError("");
     setSuccess("");
@@ -227,7 +228,7 @@ export function UpdatesSettingsPanel({ open }: { open: boolean }) {
                 {info.installType === "image" ? "Review the commits included in the next published image." : "Review the commits that will be applied in order."}
               </p>
             </div>
-            <button type="button" className={shellButton("primary")} onClick={() => void applyUpdate()} disabled={!canUpdate}>
+            <button type="button" className={shellButton("primary")} onClick={() => setConfirmingUpdate(true)} disabled={!canUpdate}>
               <AppIcon icon={Refresh03Icon} size={13} className={applying || updateRunning ? "animate-spin" : ""} />
               {updateRunning ? "Updating..." : info.installType === "image" ? "Pull latest image" : "Update Aeroplane"}
             </button>
@@ -295,6 +296,14 @@ export function UpdatesSettingsPanel({ open }: { open: boolean }) {
           {success}
         </div>
       ) : null}
+
+      <UpdateConfirmationModal
+        applying={applying}
+        installType={info?.installType ?? "git"}
+        open={confirmingUpdate}
+        onCancel={() => setConfirmingUpdate(false)}
+        onConfirm={() => void applyUpdate()}
+      />
     </div>
   );
 }
