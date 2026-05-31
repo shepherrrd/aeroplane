@@ -475,6 +475,7 @@ async function runUpdate() {
       npm_config_production: "false"
     });
     await runLogged(npmCommand(), ["run", "build"]);
+    await runLogged(npmCommand(), ["prune", "--omit=dev"]);
 
     if (queueRestart()) {
       activeRun.restartQueued = true;
