@@ -19,3 +19,19 @@ export function formatRelativeTime(value: string) {
   const days = Math.max(1, Math.round(hours / 24));
   return `${days}d ago`;
 }
+
+export function formatBytes(value: null | number) {
+  if (value === null || !Number.isFinite(value)) return "Unknown";
+  if (value < 1000) return `${value} B`;
+
+  const units = ["KB", "MB", "GB", "TB"];
+  let amount = value / 1000;
+  let unitIndex = 0;
+
+  while (amount >= 1000 && unitIndex < units.length - 1) {
+    amount /= 1000;
+    unitIndex += 1;
+  }
+
+  return `${amount >= 10 ? amount.toFixed(1) : amount.toFixed(2)} ${units[unitIndex]}`;
+}
