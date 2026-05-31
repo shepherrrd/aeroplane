@@ -42,7 +42,7 @@ applyEnvFile(resolve(process.cwd(), ".env.local"), { override: true });
 
 const defaultAeroplaneImage = process.env.AEROPLANE_IMAGE ?? "ghcr.io/akinloluwami/aeroplane:latest";
 const aeroplaneInstallDir = process.env.AEROPLANE_INSTALL_DIR ?? "/opt/aeroplane";
-const defaultImageUpdateCmd = `docker rm -f aeroplane-self-updater >/dev/null 2>&1 || true; docker run -d --name aeroplane-self-updater -v /var/run/docker.sock:/var/run/docker.sock -v ${aeroplaneInstallDir}:/work -w /work ${defaultAeroplaneImage} sh -lc 'docker compose pull aeroplane && docker compose up -d --no-deps aeroplane'`;
+const defaultImageUpdateCmd = `docker rm -f aeroplane-self-updater >/dev/null 2>&1 || true; docker run -d --name aeroplane-self-updater -v /var/run/docker.sock:/var/run/docker.sock -v ${aeroplaneInstallDir}:${aeroplaneInstallDir} -w ${aeroplaneInstallDir} ${defaultAeroplaneImage} sh -lc 'docker compose pull aeroplane && docker compose up -d --no-deps aeroplane'`;
 
 export const config = {
   port: Number(process.env.PORT ?? 4310),
