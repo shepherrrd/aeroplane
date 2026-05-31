@@ -91,6 +91,19 @@ export const databaseBackups = sqliteTable("database_backups", {
   finishedAt: text("finished_at")
 });
 
+export const serviceImportSources = sqliteTable("service_import_sources", {
+  id: text("id").primaryKey(),
+  serviceId: text("project_id").notNull(),
+  provider: text("provider").notNull(),
+  externalProjectId: text("external_project_id"),
+  externalEnvironmentId: text("external_environment_id"),
+  externalServiceId: text("external_service_id").notNull(),
+  externalServiceName: text("external_service_name"),
+  metadata: text("metadata"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -118,6 +131,7 @@ export type Service = typeof services.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type NewDeployment = typeof deployments.$inferInsert;
 export type DeploymentLog = typeof deploymentLogs.$inferSelect;
+export type ServiceImportSource = typeof serviceImportSources.$inferSelect;
 export type EnvVar = typeof envVars.$inferSelect;
 export type Domain = typeof domains.$inferSelect;
 export type DatabaseBackup = typeof databaseBackups.$inferSelect;
