@@ -26,9 +26,9 @@ On a fresh Ubuntu/Debian VPS, run:
 curl -fsSL https://get.aeroplane.run | sh
 ```
 
-The installer creates `/opt/aeroplane`, writes a production `.env`, creates a Docker Compose file, and starts:
+The installer creates `/opt/aeroplane`, clones this repository into `/opt/aeroplane/source`, writes a production `.env`, builds Aeroplane locally, and starts:
 
-- `aeroplane` from `ghcr.io/akinloluwami/aeroplane:latest`
+- `aeroplane` as a systemd service from the Git checkout
 - `deploy-buildkit` on `127.0.0.1:1234`
 - `deploy-caddy` on host ports `80` and `443`
 
@@ -43,7 +43,7 @@ You can override installer defaults by passing environment variables to `sh`:
 ```bash
 curl -fsSL https://get.aeroplane.run | \
   AEROPLANE_PUBLIC_URL=https://pilot.example.com \
-  AEROPLANE_IMAGE=ghcr.io/akinloluwami/aeroplane:latest \
+  AEROPLANE_REPO_BRANCH=main \
   AEROPLANE_PORT=4310 \
   sh
 ```
@@ -51,7 +51,8 @@ curl -fsSL https://get.aeroplane.run | \
 Common options:
 
 - `AEROPLANE_HOME`: install directory, default `/opt/aeroplane`
-- `AEROPLANE_IMAGE`: Docker image to run, default `ghcr.io/akinloluwami/aeroplane:latest`
+- `AEROPLANE_REPO_URL`: Git repository to clone, default `https://github.com/akinloluwami/aeroplane.git`
+- `AEROPLANE_REPO_BRANCH`: Git branch to install and update from, default `main`
 - `AEROPLANE_PUBLIC_URL`: public URL written to `PUBLIC_URL`
 - `AEROPLANE_PORT`: control-plane port, default `4310`
 - `AEROPLANE_HOST_PORT_START`: first deployable host port, default `4100`
@@ -62,10 +63,9 @@ Common options:
 On the VPS:
 
 ```bash
-cd /opt/aeroplane
-sudo docker compose logs -f aeroplane
-sudo docker compose pull
-sudo docker compose up -d
+sudo journalctl -u aeroplane -f
+cd /opt/aeroplane/source && git status
+cd /opt/aeroplane && sudo docker compose logs -f caddy buildkit
 ```
 
 If UFW is enabled, allow the public ports:
