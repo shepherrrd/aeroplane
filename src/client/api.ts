@@ -189,8 +189,6 @@ export type AuthStatus = {
     port: number;
     publicUrl: string;
     controlPlaneHostname: string;
-    hostPortStart: number;
-    hostPortEnd: number;
     buildkitHost: string;
     runtimeNetworkName: string;
   };
@@ -211,8 +209,6 @@ export type OnboardingPayload = {
     port: number;
     publicUrl: string;
     controlPlaneHostname?: string;
-    hostPortStart: number;
-    hostPortEnd: number;
     buildkitHost: string;
     runtimeNetworkName: string;
     githubAccessToken?: string;
