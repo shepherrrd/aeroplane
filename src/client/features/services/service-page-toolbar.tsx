@@ -2,7 +2,6 @@ import { ArrowDown01Icon, ArrowLeft01Icon, CloudServerIcon, GithubIcon } from "@
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "../../api";
 import { DeployPlaneIcon } from "../../components/icons/deploy-plane-icon";
-import { SignOutButton } from "../../components/auth/sign-out-button";
 import { AppIcon, FrameworkMark } from "../../components/ui/primitives";
 
 export function ServicePageToolbar({
@@ -104,7 +103,6 @@ export function ServicePageToolbar({
           <DeployPlaneIcon size={16} />
           Deploy
         </button>
-        <SignOutButton className="bg-zinc-950/70" />
       </div>
     </div>
   );
