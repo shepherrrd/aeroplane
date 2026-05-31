@@ -18,12 +18,12 @@ export type MigrationDatabaseDump = {
 };
 
 function databaseImage(dbType: string) {
-  if (dbType === "postgres") return "postgres:15-alpine";
+  if (dbType === "postgres") return "postgres:17-alpine";
   if (dbType === "mysql") return "mysql:8";
   if (dbType === "redis") return "redis:7-alpine";
   if (dbType === "mongodb" || dbType === "mongo") return "mongo:6";
   if (dbType === "clickhouse") return "clickhouse/clickhouse-server:latest";
-  return "postgres:15-alpine";
+  return "postgres:17-alpine";
 }
 
 function runDocker(args: string[]) {
