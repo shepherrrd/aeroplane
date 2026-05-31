@@ -626,7 +626,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
     const dbType = databaseTypeForService(service);
     const officialImage =
       dbType === "postgres"
-        ? "postgres:15-alpine"
+        ? "postgres:17-alpine"
         : dbType === "mysql"
           ? "mysql:8"
           : dbType === "redis"
@@ -635,7 +635,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
               ? "mongo:6"
               : dbType === "clickhouse"
                 ? "clickhouse/clickhouse-server:latest"
-                : "postgres:15-alpine";
+                : "postgres:17-alpine";
 
     db.update(deployments)
       .set({ status: "building", startedAt, imageTag: officialImage, containerName })
