@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, nowIso } from "./db.js";
-import { domains, services, envVars, projectGroups } from "./schema.js";
+import { services, envVars, projectGroups } from "./schema.js";
 import { allocateHostPort } from "./deploy.js";
 import { writeAndReloadCaddy } from "./caddy.js";
 import { buildDatabaseConnectionUrl, defaultDatabasePort, generatedDatabaseEnvVars, normalizeDatabaseType } from "./database-urls.js";
 import { syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
-import { getSystemSettings } from "./system-settings.js";
+import { ensureDefaultDomainForService } from "./service-domains.js";
 
 type GraphQLTypeRef = {
   kind?: string | null;
@@ -114,10 +114,6 @@ function cleanOptionalString(value: unknown) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
-}
-
-function normalizeRootDomain(value: string | undefined) {
-  return (value ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/\.+$/, "").replace(/^\*\./, "");
 }
 
 function firstOptionalString(node: Record<string, unknown>, keys: string[]) {
@@ -489,16 +485,9 @@ ${serviceInstanceCommandSelection}
       updatedAt: timestamp
     }).run();
 
-    const rootDomain = normalizeRootDomain(getSystemSettings().rootDomain);
-    if (rootDomain && !isDatabase) {
-      db.insert(domains).values({
-        id: nanoid(10),
-        serviceId: targetServiceId,
-        hostname: `${serviceSlug}.${rootDomain}`,
-        status: "pending",
-        createdAt: timestamp,
-        updatedAt: timestamp
-      }).run();
+    const createdService = db.select().from(services).where(eq(services.id, targetServiceId)).get();
+    if (createdService) {
+      ensureDefaultDomainForService(createdService);
     }
 
     const variablesToInsert = { ...fetchedVars };
