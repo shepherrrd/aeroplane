@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { spawn } from "node:child_process";
@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { config } from "./config.js";
 import { db } from "./db.js";
 import { domains, services } from "./schema.js";
+import { ensureDefaultDomainsForExistingServices } from "./service-domains.js";
 import { configuredControlPlaneHostname } from "./system-settings.js";
 
 function shellWords(command: string) {
@@ -14,10 +15,6 @@ function shellWords(command: string) {
 
 function caddyAddress(hostname: string) {
   return hostname === "localhost" || hostname.endsWith(".localhost") ? `http://${hostname}` : hostname;
-}
-
-function localPortAddress(hostPort: number) {
-  return `http://:${hostPort}`;
 }
 
 function staticSiteDirForService(serviceId: string) {
@@ -47,6 +44,8 @@ function controlPlaneBlock() {
 }
 
 export function renderCaddyfile() {
+  ensureDefaultDomainsForExistingServices();
+  const routableService = or(inArray(services.status, ["active", "building"]), isNotNull(services.activePort));
   const domainMappings = db
     .select({
       serviceId: services.id,
@@ -59,25 +58,8 @@ export function renderCaddyfile() {
     })
     .from(domains)
     .innerJoin(services, eq(services.id, domains.serviceId))
-    .where(and(inArray(domains.status, ["active", "pending"]), inArray(services.status, ["active", "building"])))
+    .where(and(inArray(domains.status, ["active", "pending"]), routableService))
     .all();
-
-  const appServices = db
-    .select({
-      id: services.id,
-      hostPort: services.hostPort,
-      activePort: services.activePort,
-      staticOutput: services.staticOutput,
-      repoUrl: services.repoUrl,
-      repoFullName: services.repoFullName
-    })
-    .from(services)
-    .where(inArray(services.status, ["active", "building"]))
-    .all()
-    .filter((s) => {
-      const isDatabase = s.repoUrl === "database" || (s.repoFullName?.startsWith("database:") ?? false);
-      return !isDatabase;
-    });
 
   const blocks: string[] = [];
   const controlPlane = controlPlaneBlock();
@@ -105,24 +87,6 @@ export function renderCaddyfile() {
   encode zstd gzip
   reverse_proxy 127.0.0.1:${targetPort}
 }`);
-  }
-
-  for (const s of appServices) {
-    if (s.staticOutput) {
-      blocks.push(`${localPortAddress(s.hostPort)} {
-  root * ${staticSiteDirForService(s.id)}
-  try_files {path} {path}/ /index.html
-  file_server
-}`);
-      continue;
-    }
-
-    if (s.activePort && s.activePort !== s.hostPort) {
-      blocks.push(`${localPortAddress(s.hostPort)} {
-  encode zstd gzip
-  reverse_proxy 127.0.0.1:${s.activePort}
-}`);
-    }
   }
 
   if (blocks.length === 0) {
