@@ -7,6 +7,7 @@ import { writeAndReloadCaddy } from "./caddy.js";
 import { buildDatabaseConnectionUrl, defaultDatabasePort, generatedDatabaseEnvVars, normalizeDatabaseType } from "./database-urls.js";
 import { syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
 import { ensureDefaultDomainForService } from "./service-domains.js";
+import { recordServiceImportSource } from "./service-import-sources.js";
 
 type GraphQLTypeRef = {
   kind?: string | null;
@@ -213,6 +214,16 @@ export async function getRailwayProjectDetails(token: string, railwayProjectId: 
   };
 }
 
+export async function getRailwayServiceVariables(token: string, projectId: string, environmentId: string, serviceId: string) {
+  const query = `
+    query GetVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
+      variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
+    }
+  `;
+  const data = await fetchRailwayGraphQL(token, query, { projectId, environmentId, serviceId });
+  return (data?.variables ?? {}) as Record<string, string>;
+}
+
 export interface ImportConfig {
   environmentId?: string;
   excludeRailwayVars?: boolean;
@@ -286,6 +297,7 @@ ${serviceInstanceCommandSelection}
     ? environmentEdges.find((e: any) => e.node?.id === config.environmentId)?.node || environmentEdges[0]?.node
     : environmentEdges[0]?.node;
   const targetEnvId = targetEnvNode?.id;
+  const targetEnvName = targetEnvNode?.name;
 
   // Build serviceSourceMap from serviceInstances of the target environment
   const serviceSourceMap = new Map<string, RailwayServiceSourceInfo>();
@@ -430,18 +442,8 @@ ${serviceInstanceCommandSelection}
       ? generatedDatabaseEnvVars(repoFullName.split(":")[1] || "postgres")
       : {};
     if (!isDatabase && targetEnvId) {
-      const varsQuery = `
-        query GetVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
-          variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
-        }
-      `;
       try {
-        const varsData = await fetchRailwayGraphQL(token, varsQuery, {
-          projectId: railwayProjectId,
-          environmentId: targetEnvId,
-          serviceId
-        });
-        fetchedVars = varsData?.variables ?? {};
+        fetchedVars = await getRailwayServiceVariables(token, railwayProjectId, targetEnvId, serviceId);
       } catch {
         // Fallback to empty variables if query fails
       }
@@ -489,6 +491,21 @@ ${serviceInstanceCommandSelection}
     if (createdService) {
       ensureDefaultDomainForService(createdService);
     }
+
+    recordServiceImportSource({
+      serviceId: targetServiceId,
+      provider: "railway",
+      externalProjectId: railwayProjectId,
+      externalEnvironmentId: targetEnvId ?? null,
+      externalServiceId: serviceId,
+      externalServiceName: serviceName,
+      metadata: {
+        projectName: rProject.name,
+        environmentName: targetEnvName ?? null,
+        sourceRepo: sourceInfo?.repo ?? null,
+        sourceImage: sourceInfo?.image ?? null
+      }
+    });
 
     const variablesToInsert = { ...fetchedVars };
     if (isDatabase) {
