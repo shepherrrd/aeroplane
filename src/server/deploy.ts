@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { randomInt } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ChildProcess, spawn } from "node:child_process";
@@ -7,11 +8,13 @@ import net from "node:net";
 import { config } from "./config.js";
 import { db, nowIso, sqlite } from "./db.js";
 import { publishDeploymentLog } from "./logBus.js";
-import { deploymentLogs, deployments, envVars, services, type Deployment, type Service } from "./schema.js";
+import { deploymentLogs, deployments, domains, envVars, services, type Deployment, type Service } from "./schema.js";
 import { writeAndReloadCaddy } from "./caddy.js";
 import { getCloneTokenForRepo } from "./github-connect.js";
 import { resolveServiceEnv } from "./variable-resolver.js";
 import { databaseTypeForService, isDatabaseService } from "./database-urls.js";
+import { ensureDefaultDomainForService } from "./service-domains.js";
+import { runtimePortForService } from "./runtime-port.js";
 
 type RunOptions = {
   cwd?: string;
@@ -390,6 +393,35 @@ function getEnvForService(serviceId: string) {
   return resolveServiceEnv(serviceId);
 }
 
+function urlForHostname(hostname: string) {
+  const isLocal =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  return `${isLocal ? "http" : "https"}://${hostname}`;
+}
+
+function preferredServiceUrl(service: Service) {
+  const domain = db
+    .select()
+    .from(domains)
+    .where(eq(domains.serviceId, service.id))
+    .orderBy(asc(domains.createdAt))
+    .limit(1)
+    .get();
+
+  if (domain) return urlForHostname(domain.hostname);
+
+  const freshService = db
+    .select({ activePort: services.activePort, hostPort: services.hostPort })
+    .from(services)
+    .where(eq(services.id, service.id))
+    .get();
+  const port = freshService?.activePort ?? freshService?.hostPort ?? service.activePort ?? service.hostPort;
+
+  return `http://127.0.0.1:${port}`;
+}
+
 function getLastLiveServiceStatus(serviceId: string): "active" | "idle" {
   const latestRunning = db
     .select({ id: deployments.id })
@@ -472,12 +504,20 @@ export function getServiceById(serviceId: string) {
 
 export function allocateHostPort() {
   const used = new Set(db.select({ hostPort: services.hostPort }).from(services).all().map((row) => row.hostPort));
-  for (let port = config.hostPortStart; port <= config.hostPortEnd; port += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const port = randomInt(10000, 61000);
     if (!used.has(port)) {
       return port;
     }
   }
-  throw new Error("No host ports are available in the configured deployment range.");
+
+  for (let port = 10000; port <= 60999; port += 1) {
+    if (!used.has(port)) {
+      return port;
+    }
+  }
+
+  throw new Error("No host ports are available.");
 }
 
 export async function removeServiceRuntime(service: Service) {
@@ -579,6 +619,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
   const isDatabase = isDatabaseService(service);
   const containerName = containerNameForService(service.id);
   const env = getEnvForService(service.id);
+  const runtimePort = runtimePortForService(service, env);
   const secrets = [...Object.values(env)].filter(Boolean);
 
   if (isDatabase) {
@@ -675,6 +716,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
   db.update(services).set({ status: "building", updatedAt: now() }).where(eq(services.id, service.id)).run();
 
   appendDeploymentLog(deployment.id, `Preparing workspace for ${service.name}.`);
+  ensureDefaultDomainForService(service);
 
   try {
     if (config.deployDryRun) {
@@ -690,7 +732,9 @@ async function runDeployment(deployment: Deployment, service: Service) {
         .set({ status: "active", lastDeployedAt: deployedAt, updatedAt: deployedAt })
         .where(eq(services.id, service.id))
         .run();
-      appendDeploymentLog(deployment.id, `Dry-run deployment marked running on port ${service.hostPort}.`);
+      const caddy = await writeAndReloadCaddy();
+      appendDeploymentLog(deployment.id, caddy.ok ? "Caddy config reloaded." : `Caddy reload skipped/failed: ${caddy.detail}`);
+      appendDeploymentLog(deployment.id, `Dry-run deployment marked running at ${preferredServiceUrl(service)}.`);
       return;
     }
 
@@ -719,7 +763,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
     const railpackEnv: Record<string, string> = {
       ...env,
       BUILDKIT_HOST: config.buildkitHost,
-      PORT: String(service.internalPort),
+      PORT: String(runtimePort),
       // Railpack/Railway docs currently reference mixed naming for these overrides.
       // Pass both variants so saved service commands actually win over auto-detection.
       RAILPACK_START_CMD: startCommand,
@@ -776,7 +820,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
 
       const caddy = await writeAndReloadCaddy();
       appendDeploymentLog(deployment.id, caddy.ok ? "Caddy config reloaded." : `Caddy reload skipped/failed: ${caddy.detail}`);
-      appendDeploymentLog(deployment.id, `Static site is served on 127.0.0.1:${service.hostPort}.`);
+      appendDeploymentLog(deployment.id, `Static site is served at ${preferredServiceUrl(service)}.`);
       return;
     }
 
@@ -795,14 +839,14 @@ async function runDeployment(deployment: Deployment, service: Service) {
       tempContainerName,
       ...runtimeNetworkArgs(service),
       "-p",
-      `127.0.0.1:${tempPort}:${service.internalPort}`
+      `127.0.0.1:${tempPort}:${runtimePort}`
     ];
-    for (const [key, value] of Object.entries({ ...env, PORT: String(service.internalPort) })) {
+    for (const [key, value] of Object.entries({ ...env, PORT: String(runtimePort) })) {
       dockerArgs.push("--env", `${key}=${value}`);
     }
     dockerArgs.push(imageTag);
 
-    appendDeploymentLog(deployment.id, `Starting new container ${tempContainerName} mapping 127.0.0.1:${tempPort} to internal ${service.internalPort}...`);
+    appendDeploymentLog(deployment.id, `Starting new container ${tempContainerName} mapping 127.0.0.1:${tempPort} to internal ${runtimePort}...`);
     await runCommand("docker", dockerArgs, deployment.id, { redact: secrets });
 
     appendDeploymentLog(deployment.id, `Probing port ${tempPort} for startup TCP health check...`);
@@ -844,7 +888,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
       .where(eq(services.id, service.id))
       .run();
 
-    appendDeploymentLog(deployment.id, `Deployment successfully running on 127.0.0.1:${service.hostPort}.`);
+    appendDeploymentLog(deployment.id, `Deployment successfully running at ${preferredServiceUrl(service)}.`);
   } catch (error) {
     if (error instanceof DeploymentAbortedError) {
       abortRequests.delete(deployment.id);
