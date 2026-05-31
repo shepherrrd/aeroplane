@@ -74,6 +74,8 @@ import {
   type DatabaseRowFilter
 } from "./database-console.js";
 import { createMigrationBundle, importMigrationBundle } from "./migration-bundle.js";
+import { importPostgresDataFromRailway, importPostgresDataFromUrl } from "./postgres-data-import.js";
+import { listServiceImportSources } from "./service-import-sources.js";
 
 const app = new Hono();
 
@@ -166,6 +168,12 @@ const databaseDeleteSchema = z.object({
 });
 const backupCreateSchema = z.object({
   storage: z.enum(["disk", "disk+r2"]).default("disk")
+});
+const postgresUrlImportSchema = z.object({
+  sourceUrl: z.string().trim().min(1, "Postgres URL is required")
+});
+const railwayDataImportSchema = z.object({
+  apiToken: z.string().trim().min(1, "Railway API token is required")
 });
 const migrationExportSchema = z.object({
   passphrase: z.string().min(8, "Use a migration passphrase with at least 8 characters.")
@@ -1540,6 +1548,40 @@ app.delete("/api/services/:serviceId/database/backups/:backupId", async (c) => {
     return c.json(await deleteDatabaseBackup(c.req.param("serviceId"), c.req.param("backupId")));
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Could not delete backup", 400);
+  }
+});
+
+app.get("/api/services/:serviceId/import-sources", (c) => {
+  const service = getServiceById(c.req.param("serviceId"));
+  if (!service) {
+    return jsonError("Service not found", 404);
+  }
+  return c.json({ sources: listServiceImportSources(service.id) });
+});
+
+app.post("/api/services/:serviceId/database/import/postgres-url", async (c) => {
+  const body = postgresUrlImportSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!body.success) {
+    return jsonError(body.error.issues[0]?.message ?? "Invalid Postgres import request");
+  }
+
+  try {
+    return c.json({ result: await importPostgresDataFromUrl(c.req.param("serviceId"), body.data.sourceUrl) });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Could not import Postgres data", 400);
+  }
+});
+
+app.post("/api/services/:serviceId/database/import/railway", async (c) => {
+  const body = railwayDataImportSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!body.success) {
+    return jsonError(body.error.issues[0]?.message ?? "Invalid Railway import request");
+  }
+
+  try {
+    return c.json({ result: await importPostgresDataFromRailway(c.req.param("serviceId"), body.data.apiToken) });
+  } catch (error) {
+    return jsonError(error instanceof Error ? error.message : "Could not import Railway Postgres data", 400);
   }
 });
 
