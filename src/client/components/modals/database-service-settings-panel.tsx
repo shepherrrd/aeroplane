@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { FieldLabel, FormInput } from "../ui/primitives";
 import { generateDatabaseHostname } from "./database-hostname";
-import { DatabasePublicAccessFields } from "./database-public-access-fields";
 
 export type DatabaseSettingsState = {
   name: string;
@@ -36,7 +35,7 @@ export function DatabaseServiceSettingsPanel({ settings, hostPort, onChange }: D
   }, []);
 
   useEffect(() => {
-    if (!settings.databasePublicEnabled || !generatedHostname || settings.databasePublicHostname === generatedHostname) return;
+    if (!generatedHostname || settings.databasePublicHostname === generatedHostname) return;
     onChange({ ...settings, databasePublicHostname: generatedHostname });
   }, [generatedHostname, settings, onChange]);
 
@@ -55,18 +54,24 @@ export function DatabaseServiceSettingsPanel({ settings, hostPort, onChange }: D
         />
       </div>
       <div className="xl:col-span-2">
-        <DatabasePublicAccessFields
-          enabled={settings.databasePublicEnabled}
-          hostname={settings.databasePublicHostname}
-          hostPort={hostPort}
-          rootDomain={rootDomain}
-          redeployHint
-          onEnabledChange={(enabled) => onChange({
-            ...settings,
-            databasePublicEnabled: enabled,
-            databasePublicHostname: enabled ? generatedHostname : ""
-          })}
-        />
+        <div className="grid gap-4 border border-zinc-800 bg-zinc-950/35 p-4 md:grid-cols-2">
+          <div>
+            <FieldLabel>Public hostname</FieldLabel>
+            <div className="flex h-11 min-w-0 items-center border border-zinc-800 bg-zinc-950 px-3 font-mono text-xs text-zinc-100">
+              <span className="truncate">{settings.databasePublicHostname || generatedHostname || "Set root domain first"}</span>
+            </div>
+          </div>
+          <div>
+            <FieldLabel>Connection target</FieldLabel>
+            <div className="flex h-11 min-w-0 items-center border border-zinc-800 bg-zinc-950 px-3 font-mono text-xs text-[#7fe3dd]">
+              <span className="truncate">
+                {settings.databasePublicHostname || generatedHostname
+                  ? `${settings.databasePublicHostname || generatedHostname}:${hostPort ?? "<port>"}`
+                  : `db.example.com:${hostPort ?? "<port>"}`}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </>
   );
