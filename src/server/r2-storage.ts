@@ -1,9 +1,9 @@
 import { createHmac, createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { R2Settings } from "./system-settings.js";
 
 type R2RequestOptions = {
-  method: "DELETE" | "HEAD" | "PUT";
+  method: "DELETE" | "GET" | "HEAD" | "PUT";
   bucket: string;
   key?: string;
   body?: Buffer;
@@ -77,7 +77,7 @@ async function signedR2Request(settings: R2Settings, options: R2RequestOptions) 
   const signature = hmacHex(signingKey(settings.secretAccessKey, timestamp.short), stringToSign);
   const response = await fetch(url, {
     method: options.method,
-    body: options.method === "HEAD" ? undefined : body,
+    body: options.method === "GET" || options.method === "HEAD" ? undefined : body,
     headers: {
       Authorization: `AWS4-HMAC-SHA256 Credential=${settings.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
       "Content-Type": contentType,
@@ -112,6 +112,15 @@ export async function uploadFileToR2(settings: R2Settings, localPath: string, ke
     body,
     contentType: "application/octet-stream"
   });
+}
+
+export async function downloadR2Object(settings: R2Settings, key: string) {
+  const response = await signedR2Request(settings, { method: "GET", bucket: settings.bucket, key });
+  return Buffer.from(await response.arrayBuffer());
+}
+
+export async function downloadR2ObjectToFile(settings: R2Settings, key: string, localPath: string) {
+  writeFileSync(localPath, await downloadR2Object(settings, key));
 }
 
 export async function deleteR2Object(settings: R2Settings, key: string) {
