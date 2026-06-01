@@ -28,12 +28,38 @@ export function BackupsStep({
   form: OnboardingForm;
   update: (patch: Partial<OnboardingForm>) => void;
 }) {
+  const hasR2Input = [form.r2AccountId, form.r2Bucket, form.r2AccessKeyId, form.r2SecretAccessKey].some((value) => value.trim());
+
+  function skipR2() {
+    update({
+      r2AccountId: "",
+      r2Bucket: "",
+      r2AccessKeyId: "",
+      r2SecretAccessKey: "",
+      r2CreateBucket: false
+    });
+  }
+
   return (
     <OnboardingSection
       eyebrow="Step 05"
       title="Database backups"
-      description="R2 is optional. If configured, Aeroplane stores encrypted R2 credentials for database backups."
+      description="R2 is optional. Fill all four R2 fields to enable remote backups, or skip this step and use disk backups only."
     >
+      {hasR2Input ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border border-zinc-800 bg-zinc-950/60 px-4 py-3">
+          <p className="text-sm leading-6 text-zinc-400">
+            Want to finish setup without Cloudflare R2? Clear these fields and Aeroplane will use disk backups.
+          </p>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center border border-zinc-700 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300 transition hover:border-[#4FB8B2]/45 hover:bg-[#4FB8B2]/10 hover:text-[#7fe3dd]"
+            onClick={skipR2}
+          >
+            Skip R2
+          </button>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2">
         <TextField
           label={
