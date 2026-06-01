@@ -13,6 +13,11 @@ import { writeAndReloadCaddy } from "./caddy.js";
 import { getCloneTokenForRepo } from "./github-connect.js";
 import { resolveServiceEnv } from "./variable-resolver.js";
 import { databaseTypeForService, isDatabaseService } from "./database-urls.js";
+import {
+  databaseDataVolumeArg,
+  databaseImage
+} from "./database-runtime.js";
+import { ensureStableDatabaseDataVolume } from "./database-volume-adoption.js";
 import { ensureDefaultDomainForService } from "./service-domains.js";
 import { runtimePortForService } from "./runtime-port.js";
 import {
@@ -631,18 +636,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
 
   if (isDatabase) {
     const dbType = databaseTypeForService(service);
-    const officialImage =
-      dbType === "postgres"
-        ? "postgres:18-alpine"
-        : dbType === "mysql"
-          ? "mysql:8"
-          : dbType === "redis"
-            ? "redis:7-alpine"
-            : dbType === "mongodb"
-              ? "mongo:6"
-              : dbType === "clickhouse"
-                ? "clickhouse/clickhouse-server:latest"
-                : "postgres:18-alpine";
+    const officialImage = databaseImage(dbType);
 
     db.update(deployments)
       .set({ status: "building", startedAt, imageTag: officialImage, containerName })
@@ -656,6 +650,14 @@ async function runDeployment(deployment: Deployment, service: Service) {
       appendDeploymentLog(deployment.id, `Pulling official image: ${officialImage}`);
       await runCommand("docker", ["pull", officialImage], deployment.id);
       await ensureRuntimeNetworkAvailable(deployment.id);
+      await ensureStableDatabaseDataVolume({
+        service,
+        dbType,
+        existingContainerName: containerName,
+        runDocker: (args) => runCommand("docker", args, deployment.id),
+        runBufferedDocker: (args) => runBufferedCommand("docker", args),
+        log: (line) => appendDeploymentLog(deployment.id, line)
+      });
 
       await runCommand("docker", ["rm", "-f", containerName], deployment.id).catch(() => {
         appendDeploymentLog(deployment.id, `No previous container named ${containerName} was running.`);
@@ -687,6 +689,7 @@ async function runDeployment(deployment: Deployment, service: Service) {
         "-p",
         `${bindHost}:${service.hostPort}:${service.internalPort}`
       ];
+      dockerArgs.push("-v", databaseDataVolumeArg(service.id, dbType));
       if (postgresTlsAssets) {
         dockerArgs.push("-v", postgresTlsVolumeArg(postgresTlsAssets));
       }
