@@ -35,6 +35,7 @@ export function EnvVarRow({ item, onSave, onDelete, busy, suggestions }: EnvVarR
   const [editing, setEditing] = useState(false);
   const [hidden, setHidden] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
   const [editKey, setEditKey] = useState(item.key);
   const [editValue, setEditValue] = useState(item.value ?? "");
 
@@ -69,6 +70,35 @@ export function EnvVarRow({ item, onSave, onDelete, busy, suggestions }: EnvVarR
   const hasReference = !!(item.resolvedValue && item.resolvedValue !== item.value);
   const publicDatabaseUrlHint = "Use this if you need to connect to this database outside this server.";
   const isPublicDatabaseUrl = publicDatabaseUrlKeys.has(item.key);
+  const hintId = `env-public-url-hint-${item.id}`;
+
+  function PublicDatabaseUrlHint() {
+    if (!isPublicDatabaseUrl) return null;
+
+    return (
+      <span className="relative shrink-0">
+        <button
+          type="button"
+          className="group inline-flex h-7 w-7 items-center justify-center text-zinc-500 transition hover:text-[#7fe3dd] focus:text-[#7fe3dd] focus:outline-none"
+          onClick={() => setHintOpen((current) => !current)}
+          onBlur={() => setHintOpen(false)}
+          aria-describedby={hintId}
+          aria-expanded={hintOpen}
+          aria-label={publicDatabaseUrlHint}
+        >
+          <AppIcon icon={InformationCircleIcon} size={15} />
+          <span
+            id={hintId}
+            className={`pointer-events-none absolute left-1/2 top-[calc(100%+0.5rem)] z-40 w-72 -translate-x-1/2 border border-zinc-700 bg-zinc-950 px-3 py-2 text-left text-xs normal-case leading-5 tracking-normal text-zinc-200 shadow-[0_16px_40px_rgba(0,0,0,0.35)] ${
+              hintOpen ? "block" : "hidden group-hover:block group-focus:block"
+            }`}
+          >
+            {publicDatabaseUrlHint}
+          </span>
+        </button>
+      </span>
+    );
+  }
 
   if (editing) {
     return (
@@ -158,11 +188,7 @@ export function EnvVarRow({ item, onSave, onDelete, busy, suggestions }: EnvVarR
           <span className="truncate font-mono text-[15px] uppercase tracking-[0.06em] text-zinc-100 font-medium">
             {item.key}
           </span>
-          {isPublicDatabaseUrl ? (
-            <span className="shrink-0 text-zinc-500" title={publicDatabaseUrlHint} aria-label={publicDatabaseUrlHint}>
-              <AppIcon icon={InformationCircleIcon} size={15} />
-            </span>
-          ) : null}
+          <PublicDatabaseUrlHint />
         </div>
 
         <div className="relative flex items-center">
