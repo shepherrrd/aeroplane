@@ -15,6 +15,13 @@ import { resolveServiceEnv } from "./variable-resolver.js";
 import { databaseTypeForService, isDatabaseService } from "./database-urls.js";
 import { ensureDefaultDomainForService } from "./service-domains.js";
 import { runtimePortForService } from "./runtime-port.js";
+import {
+  ensurePostgresTlsAssets,
+  postgresTlsServerArgs,
+  postgresTlsVolumeCreateDockerArgs,
+  postgresTlsVolumePrepareDockerPlan,
+  postgresTlsVolumeArg
+} from "./postgres-tls.js";
 
 type RunOptions = {
   cwd?: string;
@@ -654,7 +661,21 @@ async function runDeployment(deployment: Deployment, service: Service) {
         appendDeploymentLog(deployment.id, `No previous container named ${containerName} was running.`);
       });
 
-      const bindHost = service.databasePublicEnabled ? "0.0.0.0" : "127.0.0.1";
+      const bindHost = "0.0.0.0";
+      const postgresTlsAssets = dbType === "postgres" ? await ensurePostgresTlsAssets(service) : null;
+      if (postgresTlsAssets) {
+        appendDeploymentLog(deployment.id, "Preparing Postgres TLS certificates...");
+        await runCommand("docker", postgresTlsVolumeCreateDockerArgs(postgresTlsAssets), deployment.id);
+        const prep = postgresTlsVolumePrepareDockerPlan(officialImage, postgresTlsAssets);
+        try {
+          for (const args of prep.commands) {
+            await runCommand("docker", args, deployment.id);
+          }
+        } finally {
+          await runCommand("docker", prep.cleanupCommand, deployment.id).catch(() => undefined);
+        }
+      }
+
       const dockerArgs = [
         "run",
         "-d",
@@ -666,6 +687,9 @@ async function runDeployment(deployment: Deployment, service: Service) {
         "-p",
         `${bindHost}:${service.hostPort}:${service.internalPort}`
       ];
+      if (postgresTlsAssets) {
+        dockerArgs.push("-v", postgresTlsVolumeArg(postgresTlsAssets));
+      }
       if (dbType === "clickhouse") {
         dockerArgs.push("--ulimit", "nofile=262144:262144");
       }
@@ -673,6 +697,9 @@ async function runDeployment(deployment: Deployment, service: Service) {
         dockerArgs.push("--env", `${key}=${value}`);
       }
       dockerArgs.push(officialImage);
+      if (postgresTlsAssets) {
+        dockerArgs.push(...postgresTlsServerArgs());
+      }
 
       appendDeploymentLog(deployment.id, `Running container mapping ${bindHost}:${service.hostPort} to internal port ${service.internalPort}...`);
       await runCommand("docker", dockerArgs, deployment.id, { redact: secrets });
@@ -684,11 +711,11 @@ async function runDeployment(deployment: Deployment, service: Service) {
         .set({ status: "active", lastDeployedAt: deployedAt, updatedAt: deployedAt })
         .where(eq(services.id, service.id))
         .run();
-      if (service.databasePublicEnabled && service.databasePublicHostname) {
+      if (service.databasePublicHostname) {
         appendDeploymentLog(deployment.id, `Database successfully provisioned with public TCP access at ${service.databasePublicHostname}:${service.hostPort}.`);
         appendDeploymentLog(deployment.id, `If a firewall is enabled, allow TCP ${service.hostPort} before connecting externally.`);
       } else {
-        appendDeploymentLog(deployment.id, `Database successfully provisioned and listening privately on 127.0.0.1:${service.hostPort}.`);
+        appendDeploymentLog(deployment.id, `Database successfully provisioned with public TCP access on port ${service.hostPort}.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown database deployment error";
