@@ -96,7 +96,7 @@ export function ServicePageShell({
     startCommand: "",
     staticOutput: "",
     internalPort: 8080,
-    databasePublicEnabled: false,
+    databasePublicEnabled: true,
     databasePublicHostname: ""
   });
   const [settingsBranches, setSettingsBranches] = useState<string[]>([]);
@@ -360,8 +360,8 @@ export function ServicePageShell({
         startCommand: isDatabase ? undefined : (settings.startCommand || undefined),
         staticOutput: isDatabase ? undefined : (settings.staticOutput || undefined),
         internalPort: Number(settings.internalPort),
-        databasePublicEnabled: isDatabase ? settings.databasePublicEnabled : undefined,
-        databasePublicHostname: isDatabase && settings.databasePublicEnabled ? settings.databasePublicHostname : undefined
+        databasePublicEnabled: isDatabase ? true : undefined,
+        databasePublicHostname: isDatabase ? settings.databasePublicHostname || undefined : undefined
       });
     });
   }
@@ -657,9 +657,9 @@ export function ServicePageShell({
                         <div className="flex items-center gap-3 border border-zinc-700 bg-zinc-900/85 px-3 py-3 text-sm text-zinc-200">
                           <BrowserIconFallback size={17} />
                           <span className="truncate">
-                            {service?.databasePublicEnabled && service.databasePublicHostname
+                            {service?.databasePublicHostname
                               ? `Public TCP ${service.databasePublicHostname}:${service.hostPort}`
-                              : `Private TCP 127.0.0.1:${service?.hostPort}`}
+                              : `Public TCP port ${service?.hostPort}`}
                           </span>
                         </div>
                       ) : service?.reachable ? (
