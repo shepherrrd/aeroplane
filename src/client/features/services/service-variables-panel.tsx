@@ -140,7 +140,7 @@ export function ServiceVariablesPanel({
         </form>
       ) : null}
 
-      <div className="overflow-hidden border border-zinc-700 bg-zinc-900/88">
+      <div className="border border-zinc-700 bg-zinc-900/88">
         {filteredEnv.length === 0 ? (
           <div className="px-5 py-8 text-sm text-zinc-400">No service variables yet.</div>
         ) : (
