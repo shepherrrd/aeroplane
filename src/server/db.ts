@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS database_backups (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   engine TEXT NOT NULL,
   status TEXT NOT NULL,
+  trigger TEXT NOT NULL DEFAULT 'manual',
   storage TEXT NOT NULL,
   format TEXT NOT NULL,
   local_path TEXT,
@@ -107,6 +108,14 @@ CREATE TABLE IF NOT EXISTS database_backups (
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS database_backup_settings (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  storage TEXT NOT NULL,
+  automatic_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS service_import_sources (
@@ -179,6 +188,10 @@ if (!hasColumn("projects", "database_public_hostname")) {
   sqlite.exec("ALTER TABLE projects ADD COLUMN database_public_hostname TEXT");
 }
 
+if (!hasColumn("database_backups", "trigger")) {
+  sqlite.exec("ALTER TABLE database_backups ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");
+}
+
 sqlite.exec(`
 CREATE INDEX IF NOT EXISTS idx_deployments_project_created ON deployments(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_deployment_created ON deployment_logs(deployment_id, id ASC);
@@ -187,6 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_project_groups_slug ON project_groups(slug);
 CREATE INDEX IF NOT EXISTS idx_services_project_group ON projects(project_group_id);
 CREATE INDEX IF NOT EXISTS idx_services_slug ON projects(slug);
 CREATE INDEX IF NOT EXISTS idx_database_backups_service_created ON database_backups(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_database_backups_service_trigger_created ON database_backups(project_id, trigger, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_service_import_sources_service ON service_import_sources(project_id);
 CREATE INDEX IF NOT EXISTS idx_service_import_sources_provider ON service_import_sources(provider, external_project_id, external_environment_id, external_service_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
