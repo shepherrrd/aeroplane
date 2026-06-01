@@ -42,7 +42,7 @@ function clean(value: string) {
 }
 
 function buildPayload(form: OnboardingForm): OnboardingPayload {
-  const r2Provided = Boolean(form.r2AccountId || form.r2Bucket || form.r2AccessKeyId || form.r2SecretAccessKey);
+  const r2Provided = [form.r2AccountId, form.r2Bucket, form.r2AccessKeyId, form.r2SecretAccessKey].some((value) => value.trim());
   return {
     owner: {
       name: form.ownerName.trim(),
@@ -164,8 +164,17 @@ export function OnboardingPage() {
       return "Root domain must be a wildcard hostname like *.pilot.aeroplane.run.";
     }
     if (activeStep === "backups") {
-      const r2Values = [form.r2AccountId, form.r2Bucket, form.r2AccessKeyId, form.r2SecretAccessKey].filter((value) => value.trim());
-      if (r2Values.length > 0 && r2Values.length < 4) return "Fill all R2 fields or leave R2 blank.";
+      const r2Fields = [
+        { label: "R2 account ID", value: form.r2AccountId },
+        { label: "R2 bucket", value: form.r2Bucket },
+        { label: "R2 access key ID", value: form.r2AccessKeyId },
+        { label: "R2 secret access key", value: form.r2SecretAccessKey }
+      ];
+      const missingR2Fields = r2Fields.filter((field) => !field.value.trim());
+      const hasR2Fields = missingR2Fields.length < r2Fields.length;
+      if (hasR2Fields && missingR2Fields.length > 0) {
+        return `R2 is optional. Add ${missingR2Fields.map((field) => field.label).join(", ")}, or skip R2 for now.`;
+      }
     }
     return "";
   }, [activeStep, form]);
