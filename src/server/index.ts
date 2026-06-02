@@ -99,6 +99,24 @@ const optionalCommand = z.string().trim().optional().transform((value) => {
   if (!value) return undefined;
   return value.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, "\"");
 });
+const clearableString = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed || null;
+}, z.string().nullable().optional());
+const clearableCommand = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, "\"") : null;
+}, z.string().nullable().optional());
+const clearableRootDir = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
+  return trimmed || null;
+}, z.string().nullable().optional()).refine(
+  (value) => value === undefined || value === null || !value.split("/").includes(".."),
+  { message: "Invalid directory path" }
+);
 const optionalRootDir = z
   .string()
   .trim()
@@ -276,12 +294,12 @@ const updateServiceSchema = z.object({
   repoFullName: repoFullNameSchema.nullish(),
   repoUrl: repoSchema.nullish(),
   branch: z.string().trim().min(1).optional(),
-  rootDir: optionalRootDir,
+  rootDir: clearableRootDir,
   githubToken: optionalString.nullish(),
-  installCommand: optionalCommand.nullish(),
-  buildCommand: optionalCommand.nullish(),
-  startCommand: optionalCommand.nullish(),
-  staticOutput: optionalString.nullish(),
+  installCommand: clearableCommand,
+  buildCommand: clearableCommand,
+  startCommand: clearableCommand,
+  staticOutput: clearableString,
   internalPort: z.coerce.number().int().min(1).max(65535).optional(),
   databasePublicEnabled: z.boolean().optional(),
   databasePublicHostname: publicHostnameSchema
