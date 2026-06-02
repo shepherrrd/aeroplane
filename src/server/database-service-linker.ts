@@ -6,6 +6,7 @@ import { envVars, services } from "./schema.js";
 
 export type DatabaseConnectionEnvSuggestion = {
   key: string;
+  sourceKey: string;
   value: string;
   label: string;
   serviceId: string;
@@ -48,19 +49,14 @@ function mapEnvRows(serviceIds: string[]) {
   return envsByServiceId;
 }
 
-function databaseConnectionSuggestionKeys(dbType: string, primaryKey: string) {
-  if (primaryKey !== "DATABASE_URL") return [primaryKey];
-  if (dbType === "postgres") return [primaryKey, "DB_URL", "POSTGRES_URL"];
-  if (dbType === "mysql") return [primaryKey, "DB_URL", "MYSQL_URL"];
-  return [primaryKey, "DB_URL"];
+function databaseConnectionSuggestionKey(dbType: string, primaryKey: string) {
+  if (dbType === "mongodb") return "MONGO_URI";
+  return primaryKey;
 }
 
-export function databaseConnectionEnvSuggestionsForService(serviceId: string) {
-  const service = db.select().from(services).where(eq(services.id, serviceId)).get();
-  if (!service) return [];
-
-  const projectServices = db.select().from(services).where(eq(services.projectId, service.projectId)).all();
-  const databaseServices = projectServices.filter((projectService) => projectService.id !== service.id && isDatabaseService(projectService));
+function databaseConnectionEnvSuggestionsForProjectServices(projectId: string, excludeServiceId?: string) {
+  const projectServices = db.select().from(services).where(eq(services.projectId, projectId)).all();
+  const databaseServices = projectServices.filter((projectService) => projectService.id !== excludeServiceId && isDatabaseService(projectService));
   if (databaseServices.length === 0) return [];
 
   const envsByServiceId = mapEnvRows(databaseServices.map((databaseService) => databaseService.id));
@@ -76,20 +72,29 @@ export function databaseConnectionEnvSuggestionsForService(serviceId: string) {
       port: databaseService.internalPort
     });
 
-    for (const key of databaseConnectionSuggestionKeys(dbType, connectionUrl.key)) {
-      suggestions.push({
-        key,
-        value: connectionUrl.value,
-        label: `${databaseService.name} ${dbType} connection`,
-        serviceId: databaseService.id,
-        serviceName: databaseService.name,
-        serviceSlug: databaseService.slug,
-        dbType
-      });
-    }
+    suggestions.push({
+      key: databaseConnectionSuggestionKey(dbType, connectionUrl.key),
+      sourceKey: connectionUrl.key,
+      value: connectionUrl.value,
+      label: `${databaseService.name} ${dbType} connection`,
+      serviceId: databaseService.id,
+      serviceName: databaseService.name,
+      serviceSlug: databaseService.slug,
+      dbType
+    });
   }
 
   return suggestions;
+}
+
+export function databaseConnectionEnvSuggestionsForProject(projectId: string) {
+  return databaseConnectionEnvSuggestionsForProjectServices(projectId);
+}
+
+export function databaseConnectionEnvSuggestionsForService(serviceId: string) {
+  const service = db.select().from(services).where(eq(services.id, serviceId)).get();
+  if (!service) return [];
+  return databaseConnectionEnvSuggestionsForProjectServices(service.projectId, service.id);
 }
 
 export function syncProjectDatabaseConnectionEnv(projectId: string) {
