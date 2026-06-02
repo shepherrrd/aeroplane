@@ -461,9 +461,7 @@ export function ServicePageShell({
             <ServicePageToolbar
               services={pageServices}
               currentService={service ?? null}
-              deploying={busy === "deploy"}
               onBack={onClose}
-              onDeploy={() => void doAction("deploy", async () => void api.createDeployment(serviceId))}
               onServiceSelect={onServiceSelect ?? (() => undefined)}
             />
 
@@ -487,7 +485,6 @@ export function ServicePageShell({
                     env={env}
                     domains={domains}
                     pageServices={pageServices}
-                    publicIp={overview?.publicIp}
                     isDatabase={isDatabase}
                     databaseEngine={databaseEngine}
                     busy={busy}
