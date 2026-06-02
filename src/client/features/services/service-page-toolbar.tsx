@@ -1,22 +1,17 @@
 import { ArrowDown01Icon, ArrowLeft01Icon, CloudServerIcon, GithubIcon } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "../../api";
-import { DeployPlaneIcon } from "../../components/icons/deploy-plane-icon";
 import { AppIcon, FrameworkMark } from "../../components/ui/primitives";
 
 export function ServicePageToolbar({
   services,
   currentService,
-  deploying,
   onBack,
-  onDeploy,
   onServiceSelect
 }: {
   services: Service[];
   currentService: Service | null;
-  deploying: boolean;
   onBack: () => void;
-  onDeploy: () => void;
   onServiceSelect: (serviceSlug: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -91,18 +86,6 @@ export function ServicePageToolbar({
             </div>
           ) : null}
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="inline-flex h-9 items-center justify-center gap-2 border border-[#4FB8B2]/45 bg-[#4FB8B2]/12 px-4 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9af4ee] transition hover:bg-[#4FB8B2]/20 disabled:opacity-60"
-          onClick={onDeploy}
-          disabled={deploying}
-        >
-          <DeployPlaneIcon size={16} />
-          Deploy
-        </button>
       </div>
     </div>
   );
