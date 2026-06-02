@@ -149,6 +149,12 @@ export type R2SettingsStatus = {
   updatedAt: null | string;
 };
 
+export type SystemSettings = {
+  rootDomain: string;
+  controlPlaneHostname: string;
+  deploymentConcurrency: number;
+};
+
 export type DatabaseBackup = {
   id: string;
   serviceId: string;
@@ -630,13 +636,13 @@ export const api = {
     }),
   systemSettings: () =>
     request<{
-      settings: { rootDomain: string; controlPlaneHostname: string };
+      settings: SystemSettings;
       publicIp: string;
       dnsStatus?: "active" | "pending";
       controlPlaneDnsStatus?: "active" | "pending";
     }>("/api/system/settings"),
-  updateSystemSettings: (body: { rootDomain?: string; controlPlaneHostname?: string }) =>
-    request<{ ok: boolean; settings: { rootDomain: string; controlPlaneHostname: string }; caddy?: { ok: boolean; detail: string } }>("/api/system/settings", {
+  updateSystemSettings: (body: { rootDomain?: string; controlPlaneHostname?: string; deploymentConcurrency?: number }) =>
+    request<{ ok: boolean; settings: SystemSettings; caddy?: { ok: boolean; detail: string } }>("/api/system/settings", {
       method: "POST",
       body: JSON.stringify(body)
     }),
