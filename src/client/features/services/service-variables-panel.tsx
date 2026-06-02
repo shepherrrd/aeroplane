@@ -1,11 +1,10 @@
 import { Add01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { useState } from "react";
 import type { ClipboardEvent } from "react";
-import { api, type DatabaseVariableSuggestion, type EnvVar } from "../../api";
+import { api, type EnvVar } from "../../api";
 import { AutocompleteInput } from "../../components/ui/autocomplete-input";
 import { AppIcon, FieldLabel, FormInput, shellButton } from "../../components/ui/primitives";
 import { EnvVarRow } from "../../components/modals/env-var-row";
-import { DatabaseVariableSuggestions } from "./database-variable-suggestions";
 
 type ParsedEnvEntry = {
   key: string;
@@ -37,14 +36,12 @@ export function ServiceVariablesPanel({
   serviceId,
   env,
   suggestions,
-  databaseVariableSuggestions,
   busy,
   doAction
 }: {
   serviceId: string;
   env: EnvVar[];
   suggestions: Array<{ key: string; label: string }>;
-  databaseVariableSuggestions: DatabaseVariableSuggestion[];
   busy: string;
   doAction: (label: string, action: () => Promise<void>) => Promise<void>;
 }) {
@@ -92,17 +89,6 @@ export function ServiceVariablesPanel({
           New variable
         </button>
       </div>
-
-      <DatabaseVariableSuggestions
-        suggestions={databaseVariableSuggestions}
-        env={env}
-        busy={busy === "env"}
-        onInsert={async (key, value) => {
-          await doAction("env", async () => {
-            await api.upsertEnv(serviceId, { key, value });
-          });
-        }}
-      />
 
       {newEnvOpen ? (
         <form
