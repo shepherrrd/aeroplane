@@ -1,7 +1,7 @@
 import { Add01Icon, Cancel01Icon, CheckmarkCircle02Icon, Delete02Icon, PencilEdit02Icon, Refresh03Icon } from "@hugeicons/core-free-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { api, type DatabaseRow, type DatabaseRowsResponse, type DatabaseTable } from "../../api";
+import { api, type DatabaseRow, type DatabaseRowsResponse, type DatabaseRuntimeState, type DatabaseTable } from "../../api";
 import { Dropdown } from "../ui/dropdown";
 import { AppIcon, FormInput, shellButton } from "../ui/primitives";
 import { DatabaseInsertSheet } from "./database-insert-sheet";
@@ -9,6 +9,7 @@ import { RedisDeleteKeyModal } from "./redis-delete-key-modal";
 import { RedisHashTable } from "./redis-hash-table";
 import { RedisKeyActionsMenu } from "./redis-key-actions-menu";
 import { RedisTtlPopover } from "./redis-ttl-popover";
+import { DatabaseRuntimeStatePanel } from "./database-runtime-state-panel";
 
 type RedisInsertMode = "key" | "item";
 
@@ -374,6 +375,8 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [runtimeState, setRuntimeState] = useState<DatabaseRuntimeState>("ready");
   const [insertOpen, setInsertOpen] = useState(false);
   const [insertMode, setInsertMode] = useState<RedisInsertMode>("key");
   const [insertError, setInsertError] = useState("");
@@ -410,10 +413,12 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     try {
       const result = await api.databaseTables(serviceId, Number(logicalDatabase));
       if (keysRequestId.current !== requestId) return { tables: [], selected: "" };
+      setRuntimeState(result.runtimeState ?? "ready");
+      setMessage(result.message ?? "");
       setKeys(result.tables);
       const nextKey = result.tables.find((key) => key.id === currentKey)?.id ?? result.tables[0]?.id ?? "";
       setSelectedKey(nextKey);
-      if (result.tables.length === 0) setRowsResult(null);
+      if (result.tables.length === 0 || (result.runtimeState && result.runtimeState !== "ready")) setRowsResult(null);
       return { tables: result.tables, selected: nextKey };
     } catch (issue) {
       if (keysRequestId.current === requestId) setError(issue instanceof Error ? issue.message : "Could not load Redis keys");
@@ -607,6 +612,8 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     setKeys([]);
     setSelectedKey("");
     setRowsResult(null);
+    setRuntimeState("ready");
+    setMessage("");
     void loadKeys("0", "");
   }, [serviceId]);
 
@@ -626,6 +633,8 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
     void loadKeys(database, "");
   }
 
+  const hasRuntimeNotice = runtimeState !== "ready";
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -635,7 +644,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
         <button type="button" className="inline-flex h-9 w-9 items-center justify-center border border-zinc-700 bg-zinc-900 text-zinc-300 transition hover:border-zinc-500 hover:text-white" onClick={() => void loadKeys(selectedDatabase)} disabled={busy === "keys"} aria-label="Refresh keys">
           <AppIcon icon={Refresh03Icon} size={16} className={busy === "keys" ? "animate-spin" : ""} />
         </button>
-        <button type="button" className={`${shellButton("primary")} h-9 !py-0`} onClick={openAddKey} disabled={busy === "insert"}>
+        <button type="button" className={`${shellButton("primary")} h-9 !py-0`} onClick={openAddKey} disabled={busy === "insert" || hasRuntimeNotice}>
           <AppIcon icon={Add01Icon} size={15} />
           Key
         </button>
@@ -652,7 +661,7 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
             {busy === "keys" && keys.length === 0 ? (
               <div className="flex h-full items-center justify-center text-center text-sm text-zinc-500">Loading keys...</div>
             ) : filteredKeys.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-center text-sm text-zinc-500">No keys found.</div>
+              <div className="flex h-full items-center justify-center text-center text-sm text-zinc-500">{hasRuntimeNotice ? "Database not ready." : "No keys found."}</div>
             ) : filteredKeys.map((key) => {
               const selected = selectedKey === key.id;
               return (
@@ -681,7 +690,14 @@ export function RedisBrowserPanel({ serviceId }: { serviceId: string }) {
         </div>
 
         <div className="flex min-h-0 flex-col border border-zinc-800 bg-zinc-950/45 p-5">
-          {!selectedKeyMeta ? (
+          {hasRuntimeNotice ? (
+            <DatabaseRuntimeStatePanel
+              state={runtimeState}
+              message={message}
+              busy={busy === "keys"}
+              onRefresh={() => void loadKeys(selectedDatabase)}
+            />
+          ) : !selectedKeyMeta ? (
             <div className="flex min-h-0 flex-1 items-center justify-center text-center text-sm text-zinc-500">Choose a key to inspect its value.</div>
           ) : busy === "rows" && !rowsBelongToSelectedKey ? (
             <div className="flex min-h-0 flex-1 items-center justify-center text-center text-sm text-zinc-500">Loading key...</div>
