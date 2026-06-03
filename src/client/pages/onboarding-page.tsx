@@ -7,7 +7,7 @@ import {
   GithubIcon,
   Globe02Icon,
   Settings01Icon,
-  ShieldUserIcon
+  ShieldUserIcon,
 } from "@hugeicons/core-free-icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, type AuthStatus, type OnboardingPayload } from "../api";
@@ -16,22 +16,39 @@ import { AppIcon, shellButton } from "../components/ui/primitives";
 import { BackupsStep } from "../features/onboarding/backups-step";
 import { GitHubStep } from "../features/onboarding/github-step";
 import { MigrationImportModal } from "../features/onboarding/migration-import-modal";
+import { OnboardingPageSkeleton } from "../features/onboarding/onboarding-page-skeleton";
 import { OnboardingThread } from "../features/onboarding/onboarding-thread";
 import { OwnerStep } from "../features/onboarding/owner-step";
 import { RootDomainStep } from "../features/onboarding/root-domain-step";
 import { RuntimeStep } from "../features/onboarding/runtime-step";
-import { defaultOnboardingForm, type OnboardingForm } from "../features/onboarding/onboarding-types";
+import {
+  defaultOnboardingForm,
+  type OnboardingForm,
+} from "../features/onboarding/onboarding-types";
 import { usePageTitle } from "../lib/page-title";
-import { isWildcardRootDomain, normalizeRootDomain, wildcardRootDomain } from "../lib/root-domain";
+import {
+  isWildcardRootDomain,
+  normalizeRootDomain,
+  wildcardRootDomain,
+} from "../lib/root-domain";
 
-type OnboardingStepKey = "owner" | "runtime" | "github" | "root-domain" | "backups";
+type OnboardingStepKey =
+  | "owner"
+  | "runtime"
+  | "github"
+  | "root-domain"
+  | "backups";
 
-const firstRunSteps: Array<{ key: OnboardingStepKey; label: string; icon: unknown }> = [
+const firstRunSteps: Array<{
+  key: OnboardingStepKey;
+  label: string;
+  icon: unknown;
+}> = [
   { key: "owner", label: "Owner", icon: ShieldUserIcon },
   { key: "runtime", label: "Runtime", icon: Settings01Icon },
   { key: "github", label: "GitHub", icon: GithubIcon },
   { key: "root-domain", label: "Root Domain", icon: Globe02Icon },
-  { key: "backups", label: "Backups", icon: CloudUploadIcon }
+  { key: "backups", label: "Backups", icon: CloudUploadIcon },
 ];
 
 const restartSteps = firstRunSteps.filter((item) => item.key !== "owner");
@@ -42,12 +59,17 @@ function clean(value: string) {
 }
 
 function buildPayload(form: OnboardingForm): OnboardingPayload {
-  const r2Provided = [form.r2AccountId, form.r2Bucket, form.r2AccessKeyId, form.r2SecretAccessKey].some((value) => value.trim());
+  const r2Provided = [
+    form.r2AccountId,
+    form.r2Bucket,
+    form.r2AccessKeyId,
+    form.r2SecretAccessKey,
+  ].some((value) => value.trim());
   return {
     owner: {
       name: form.ownerName.trim(),
       email: form.ownerEmail.trim(),
-      password: form.ownerPassword
+      password: form.ownerPassword,
     },
     env: {
       secretKey: clean(form.secretKey),
@@ -65,7 +87,7 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
       githubAppClientId: clean(form.githubAppClientId),
       githubAppSlug: clean(form.githubAppSlug),
       githubAppPrivateKey: clean(form.githubAppPrivateKey),
-      githubWebhookSecret: clean(form.githubWebhookSecret)
+      githubWebhookSecret: clean(form.githubWebhookSecret),
     },
     rootDomain: clean(normalizeRootDomain(form.rootDomain)),
     r2: r2Provided
@@ -74,18 +96,20 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
           bucket: clean(form.r2Bucket),
           accessKeyId: clean(form.r2AccessKeyId),
           secretAccessKey: clean(form.r2SecretAccessKey),
-          createBucket: form.r2CreateBucket
+          createBucket: form.r2CreateBucket,
         }
-      : undefined
+      : undefined,
   };
 }
 
-function buildRestartPayload(form: OnboardingForm): Omit<OnboardingPayload, "owner"> {
+function buildRestartPayload(
+  form: OnboardingForm,
+): Omit<OnboardingPayload, "owner"> {
   const payload = buildPayload(form);
   return {
     env: payload.env,
     rootDomain: payload.rootDomain,
-    r2: payload.r2
+    r2: payload.r2,
   };
 }
 
@@ -93,24 +117,38 @@ export function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(defaultOnboardingForm);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authStatusLoading, setAuthStatusLoading] = useState(true);
   const [hydrated, setHydrated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [migrationImportOpen, setMigrationImportOpen] = useState(false);
   const [error, setError] = useState("");
   usePageTitle("Onboarding");
 
-  const update = (patch: Partial<OnboardingForm>) => setForm((current) => ({ ...current, ...patch }));
-  const restartMode = Boolean(authStatus?.setupComplete && authStatus.authenticated);
+  const update = (patch: Partial<OnboardingForm>) =>
+    setForm((current) => ({ ...current, ...patch }));
+  const restartMode = Boolean(
+    authStatus?.setupComplete && authStatus.authenticated,
+  );
   const activeSteps = restartMode ? restartSteps : firstRunSteps;
-  const activeStep = activeSteps[step]?.key ?? (restartMode ? "runtime" : "owner");
+  const activeStep =
+    activeSteps[step]?.key ?? (restartMode ? "runtime" : "owner");
 
   useEffect(() => {
     let cancelled = false;
-    void api.authStatus().then((status) => {
-      if (!cancelled) setAuthStatus(status);
-    }).catch(() => {
-      if (!cancelled) setAuthStatus(null);
-    });
+    void api
+      .authStatus()
+      .then((status) => {
+        if (!cancelled) {
+          setAuthStatus(status);
+          setAuthStatusLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthStatus(null);
+          setAuthStatusLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -132,18 +170,23 @@ export function OnboardingPage() {
         publicUrl: runtime.publicUrl,
         controlPlaneHostname: runtime.controlPlaneHostname,
         buildkitHost: runtime.buildkitHost,
-        runtimeNetworkName: runtime.runtimeNetworkName
+        runtimeNetworkName: runtime.runtimeNetworkName,
       }));
     }
 
     if (authStatus.setupComplete && authStatus.authenticated) {
-      void api.systemSettings().then((result) => {
-        setForm((current) => ({
-          ...current,
-          controlPlaneHostname: result.settings.controlPlaneHostname || current.controlPlaneHostname,
-          rootDomain: wildcardRootDomain(result.settings.rootDomain)
-        }));
-      }).catch(() => undefined);
+      void api
+        .systemSettings()
+        .then((result) => {
+          setForm((current) => ({
+            ...current,
+            controlPlaneHostname:
+              result.settings.controlPlaneHostname ||
+              current.controlPlaneHostname,
+            rootDomain: wildcardRootDomain(result.settings.rootDomain),
+          }));
+        })
+        .catch(() => undefined);
     }
   }, [authStatus, hydrated]);
 
@@ -153,14 +196,30 @@ export function OnboardingPage() {
 
   const stepError = useMemo(() => {
     if (activeStep === "owner") {
-      if (!form.ownerName.trim() || !form.ownerEmail.trim() || !form.ownerPassword) return "Create the owner account first.";
-      if (form.ownerPassword.length < 8) return "Password must be at least 8 characters.";
-      if (form.ownerPassword !== form.ownerPasswordConfirm) return "Passwords do not match.";
+      if (
+        !form.ownerName.trim() ||
+        !form.ownerEmail.trim() ||
+        !form.ownerPassword
+      )
+        return "Create the owner account first.";
+      if (form.ownerPassword.length < 8)
+        return "Password must be at least 8 characters.";
+      if (form.ownerPassword !== form.ownerPasswordConfirm)
+        return "Passwords do not match.";
     }
     if (activeStep === "runtime") {
-      if (!form.dataDir.trim() || !form.publicUrl.trim() || !form.caddyConfigPath.trim() || !form.caddyReloadCmd.trim()) return "Runtime fields are required.";
+      if (
+        !form.dataDir.trim() ||
+        !form.publicUrl.trim() ||
+        !form.caddyConfigPath.trim() ||
+        !form.caddyReloadCmd.trim()
+      )
+        return "Runtime fields are required.";
     }
-    if (activeStep === "root-domain" && !isWildcardRootDomain(form.rootDomain)) {
+    if (
+      activeStep === "root-domain" &&
+      !isWildcardRootDomain(form.rootDomain)
+    ) {
       return "Root domain must be a wildcard hostname like *.pilot.aeroplane.run.";
     }
     if (activeStep === "backups") {
@@ -168,7 +227,7 @@ export function OnboardingPage() {
         { label: "R2 account ID", value: form.r2AccountId },
         { label: "R2 bucket", value: form.r2Bucket },
         { label: "R2 access key ID", value: form.r2AccessKeyId },
-        { label: "R2 secret access key", value: form.r2SecretAccessKey }
+        { label: "R2 secret access key", value: form.r2SecretAccessKey },
       ];
       const missingR2Fields = r2Fields.filter((field) => !field.value.trim());
       const hasR2Fields = missingR2Fields.length < r2Fields.length;
@@ -178,6 +237,8 @@ export function OnboardingPage() {
     }
     return "";
   }, [activeStep, form]);
+
+  if (authStatusLoading) return <OnboardingPageSkeleton />;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -206,14 +267,19 @@ export function OnboardingPage() {
       }
       window.location.replace("/onboarding/success");
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : "Could not finish setup");
+      setError(
+        issue instanceof Error ? issue.message : "Could not finish setup",
+      );
       setSubmitting(false);
     }
   }
 
   return (
     <main className="relative isolate min-h-dvh overflow-hidden bg-zinc-950 px-5 py-8 text-zinc-100">
-      <div aria-hidden className="hero-noise pointer-events-none absolute inset-0" />
+      <div
+        aria-hidden
+        className="hero-noise pointer-events-none absolute inset-0"
+      />
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_0%_0%,rgba(79,184,178,0.12),transparent),radial-gradient(ellipse_70%_50%_at_100%_100%,rgba(120,113,255,0.08),transparent)]"
@@ -230,23 +296,47 @@ export function OnboardingPage() {
               <BrandMark />
             </div>
             <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-zinc-500">{restartMode ? "Re-run setup" : "First run"}</div>
-              <h1 className="font-hero text-2xl tracking-tight text-zinc-100">{restartMode ? "Restart onboarding" : "Set up Aeroplane"}</h1>
+              <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-zinc-500">
+                {restartMode ? "Re-run setup" : "First run"}
+              </div>
+              <h1 className="font-hero text-2xl tracking-tight text-zinc-100">
+                {restartMode ? "Restart onboarding" : "Set up Aeroplane"}
+              </h1>
             </div>
           </div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">Step {step + 1} of {activeSteps.length}</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+            Step {step + 1} of {activeSteps.length}
+          </div>
         </header>
 
-        <OnboardingThread steps={activeSteps} activeStep={step} onStepChange={setStep} />
+        <OnboardingThread
+          steps={activeSteps}
+          activeStep={step}
+          onStepChange={setStep}
+        />
 
         <form onSubmit={submit} className="space-y-5">
-          {activeStep === "owner" ? <OwnerStep form={form} update={update} /> : null}
-          {activeStep === "runtime" ? <RuntimeStep form={form} update={update} /> : null}
-          {activeStep === "github" ? <GitHubStep form={form} update={update} /> : null}
-          {activeStep === "root-domain" ? <RootDomainStep form={form} update={update} /> : null}
-          {activeStep === "backups" ? <BackupsStep form={form} update={update} /> : null}
+          {activeStep === "owner" ? (
+            <OwnerStep form={form} update={update} />
+          ) : null}
+          {activeStep === "runtime" ? (
+            <RuntimeStep form={form} update={update} />
+          ) : null}
+          {activeStep === "github" ? (
+            <GitHubStep form={form} update={update} />
+          ) : null}
+          {activeStep === "root-domain" ? (
+            <RootDomainStep form={form} update={update} />
+          ) : null}
+          {activeStep === "backups" ? (
+            <BackupsStep form={form} update={update} />
+          ) : null}
 
-          {error ? <div className="border border-rose-500/35 bg-rose-950/30 px-4 py-3 font-mono text-xs text-rose-300">{error}</div> : null}
+          {error ? (
+            <div className="border border-rose-500/35 bg-rose-950/30 px-4 py-3 font-mono text-xs text-rose-300">
+              {error}
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between border-t border-zinc-800 pt-5">
             <button
@@ -266,22 +356,41 @@ export function OnboardingPage() {
               disabled={submitting}
               className="inline-flex h-10 items-center justify-center gap-2 border border-[#4FB8B2]/50 bg-[#4FB8B2]/15 px-4 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7fe3dd] transition-colors hover:bg-[#4FB8B2]/25 disabled:opacity-60"
             >
-              <AppIcon icon={step === activeSteps.length - 1 ? CheckmarkCircle02Icon : ArrowRight02Icon} size={15} />
-              {step === activeSteps.length - 1 ? (submitting ? "Saving" : restartMode ? "Save setup" : "Finish setup") : "Continue"}
+              <AppIcon
+                icon={
+                  step === activeSteps.length - 1
+                    ? CheckmarkCircle02Icon
+                    : ArrowRight02Icon
+                }
+                size={15}
+              />
+              {step === activeSteps.length - 1
+                ? submitting
+                  ? "Saving"
+                  : restartMode
+                    ? "Save setup"
+                    : "Finish setup"
+                : "Continue"}
             </button>
           </div>
         </form>
-
       </div>
       {!restartMode ? (
         <div className="fixed bottom-6 left-1/2 z-20 -translate-x-1/2">
-          <button type="button" className={`${shellButton("secondary")} bg-zinc-950/90 shadow-[0_18px_45px_rgba(0,0,0,0.35)] backdrop-blur`} onClick={() => setMigrationImportOpen(true)}>
+          <button
+            type="button"
+            className={`${shellButton("secondary")} bg-zinc-950/90 shadow-[0_18px_45px_rgba(0,0,0,0.35)] backdrop-blur`}
+            onClick={() => setMigrationImportOpen(true)}
+          >
             <AppIcon icon={DatabaseExportIcon} size={14} />
             Import existing Aeroplane
           </button>
         </div>
       ) : null}
-      <MigrationImportModal open={migrationImportOpen} onClose={() => setMigrationImportOpen(false)} />
+      <MigrationImportModal
+        open={migrationImportOpen}
+        onClose={() => setMigrationImportOpen(false)}
+      />
     </main>
   );
 }
