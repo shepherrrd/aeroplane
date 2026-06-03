@@ -5,10 +5,12 @@ import { services, envVars, projectGroups } from "./schema.js";
 import { allocateHostPort } from "./deploy.js";
 import { writeAndReloadCaddy } from "./caddy.js";
 import { buildDatabaseConnectionUrl, defaultDatabasePort, generateDatabaseHostname, generatedDatabaseEnvVars, normalizeDatabaseType } from "./database-urls.js";
-import { syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
+import { linkProjectAppDatabaseConnectionEnv, syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
 import { ensureDefaultDomainForService } from "./service-domains.js";
 import { recordServiceImportSource } from "./service-import-sources.js";
 import { getSystemSettings } from "./system-settings.js";
+import { fetchRailwayGraphQL } from "./railway-graphql.js";
+import { getRailwayServiceDomainInfo, importRailwayCustomDomains, railwayServiceTargetPort, type RailwayServiceDomainInfo } from "./railway-custom-domains.js";
 
 type GraphQLTypeRef = {
   kind?: string | null;
@@ -37,28 +39,6 @@ const optionalServiceInstanceFields = [
   "outputDirectory",
   "publishDirectory"
 ] as const;
-
-async function fetchRailwayGraphQL(token: string, query: string, variables: any = {}) {
-  const res = await fetch("https://backboard.railway.app/graphql/v2", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ query, variables })
-  });
-
-  if (!res.ok) {
-    throw new Error(`Railway GraphQL request failed: ${res.statusText}`);
-  }
-
-  const body = await res.json() as any;
-  if (body.errors && body.errors.length > 0) {
-    throw new Error(body.errors[0].message);
-  }
-
-  return body.data;
-}
 
 function unwrapGraphQLType(type?: GraphQLTypeRef | null): GraphQLTypeRef | null {
   let current = type ?? null;
@@ -124,6 +104,14 @@ function firstOptionalString(node: Record<string, unknown>, keys: string[]) {
     if (value) return value;
   }
   return undefined;
+}
+
+function numericPort(value: unknown) {
+  const port = Number(value);
+  if (Number.isInteger(port) && port > 0 && port <= 65535) {
+    return port;
+  }
+  return null;
 }
 
 export async function getRailwayProjects(token: string) {
@@ -225,10 +213,22 @@ export async function getRailwayServiceVariables(token: string, projectId: strin
   return (data?.variables ?? {}) as Record<string, string>;
 }
 
+export async function getRailwayServiceDeploymentVariables(token: string, projectId: string, environmentId: string, serviceId: string) {
+  const query = `
+    query GetDeploymentVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
+      variablesForServiceDeployment(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
+    }
+  `;
+  const data = await fetchRailwayGraphQL(token, query, { projectId, environmentId, serviceId });
+  return (data?.variablesForServiceDeployment ?? {}) as Record<string, string>;
+}
+
 export interface ImportConfig {
   environmentId?: string;
   excludeRailwayVars?: boolean;
   importDatabases?: boolean;
+  autoDeploy?: boolean;
+  importDatabaseData?: boolean;
   selectedServiceIds?: string[];
 }
 
@@ -322,6 +322,14 @@ ${serviceInstanceCommandSelection}
 
   const timestamp = nowIso();
   const projectGroupId = nanoid(10);
+  const importedServices: Array<{
+    id: string;
+    railwayServiceId: string;
+    name: string;
+    isDatabase: boolean;
+    dbType: string | null;
+  }> = [];
+  let importedCustomDomainCount = 0;
   
   // Create project slug
   const baseSlug = rProject.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "project";
@@ -362,6 +370,8 @@ ${serviceInstanceCommandSelection}
     let buildCommand: string | null = null;
     let startCommand: string | null = null;
     let staticOutput: string | null = null;
+    let railwayDomainInfo: RailwayServiceDomainInfo | null = null;
+    let railwayTargetPort: number | null = null;
 
     // 1. Resolve from repoTriggers if available
     const triggersEdges = sNode.repoTriggers?.edges ?? [];
@@ -437,16 +447,42 @@ ${serviceInstanceCommandSelection}
       }
     }
 
+    if (!isDatabase && targetEnvId) {
+      try {
+        railwayDomainInfo = await getRailwayServiceDomainInfo(token, railwayProjectId, targetEnvId, serviceId);
+        railwayTargetPort = railwayServiceTargetPort(railwayDomainInfo);
+        if (railwayTargetPort) {
+          internalPort = railwayTargetPort;
+        }
+      } catch {
+        // Railway domain metadata is useful for target ports and custom domains, but not required.
+      }
+    }
+
     // Database imports are recreated with fresh Aeroplane-managed credentials.
     // Railway variables often point at Railway-only hosts and should not be copied.
     let fetchedVars: Record<string, string> = isDatabase
       ? generatedDatabaseEnvVars(repoFullName.split(":")[1] || "postgres")
       : {};
+    let deploymentVars: Record<string, string> = {};
     if (!isDatabase && targetEnvId) {
       try {
         fetchedVars = await getRailwayServiceVariables(token, railwayProjectId, targetEnvId, serviceId);
       } catch {
         // Fallback to empty variables if query fails
+      }
+      try {
+        deploymentVars = await getRailwayServiceDeploymentVariables(token, railwayProjectId, targetEnvId, serviceId);
+        fetchedVars = { ...fetchedVars, ...deploymentVars };
+      } catch {
+        // Runtime/deployment variables are best-effort; service variables still cover user-defined values.
+      }
+    }
+
+    if (!isDatabase && !railwayTargetPort) {
+      const envPort = numericPort(deploymentVars.PORT ?? fetchedVars.PORT);
+      if (envPort) {
+        internalPort = envPort;
       }
     }
 
@@ -494,6 +530,21 @@ ${serviceInstanceCommandSelection}
     const createdService = db.select().from(services).where(eq(services.id, targetServiceId)).get();
     if (createdService) {
       ensureDefaultDomainForService(createdService);
+      if (!isDatabase) {
+        try {
+          const importedDomains = await importRailwayCustomDomains({
+            token,
+            projectId: railwayProjectId,
+            environmentId: targetEnvId,
+            railwayServiceId: serviceId,
+            targetServiceId,
+            domainInfo: railwayDomainInfo
+          });
+          importedCustomDomainCount += importedDomains.length;
+        } catch {
+          // Domain import should not block service migration.
+        }
+      }
     }
 
     recordServiceImportSource({
@@ -538,12 +589,30 @@ ${serviceInstanceCommandSelection}
         updatedAt: timestamp
       }).run();
     }
+
+    importedServices.push({
+      id: targetServiceId,
+      railwayServiceId: serviceId,
+      name: serviceName,
+      isDatabase,
+      dbType: isDatabase ? repoFullName.split(":")[1] || "postgres" : null
+    });
   }
 
-  syncProjectDatabaseConnectionEnv(projectGroupId);
+  const databaseSync = syncProjectDatabaseConnectionEnv(projectGroupId);
+  const appEnvLinks = linkProjectAppDatabaseConnectionEnv(projectGroupId);
 
   // Trigger Caddy reload to map services
   await writeAndReloadCaddy();
 
-  return { projectSlug };
+  return {
+    projectId: projectGroupId,
+    projectSlug,
+    services: importedServices,
+    databaseServiceIds: importedServices.filter((service) => service.isDatabase).map((service) => service.id),
+    appServiceIds: importedServices.filter((service) => !service.isDatabase).map((service) => service.id),
+    importedCustomDomainCount,
+    linkedDatabaseVariables: appEnvLinks.linked,
+    syncedDatabaseVariables: databaseSync.synced
+  };
 }
