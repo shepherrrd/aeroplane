@@ -68,8 +68,10 @@ export function EnvVarRow({ item, onSave, onDelete, busy, suggestions }: EnvVarR
   }
 
   const hasReference = !!(item.resolvedValue && item.resolvedValue !== item.value);
-  const publicDatabaseUrlHint = "Use this if you need to connect to this database outside this server.";
   const isPublicDatabaseUrl = publicDatabaseUrlKeys.has(item.key);
+  const publicDatabaseUrlHint = item.key === "POSTGRES_PUBLIC_URL"
+    ? "Use this outside this server. Postgres TLS uses a public CA when Caddy has issued one; otherwise clients that verify certificates need the service CA certificate."
+    : "Use this if you need to connect to this database outside this server.";
   const hintId = `env-public-url-hint-${item.id}`;
 
   function PublicDatabaseUrlHint() {
