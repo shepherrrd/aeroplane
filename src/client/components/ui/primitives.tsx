@@ -31,7 +31,8 @@ export function chipClass(active: boolean) {
 }
 
 export function statusClass(status: string) {
-  if (status === "active" || status === "running" || status === "deployed") return "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  if (status === "current") return "border border-violet-500/35 bg-violet-500/12 text-violet-200";
+  if (status === "active" || status === "running" || status === "deployed" || status === "success") return "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
   if (status === "crashed") return "border border-orange-500/30 bg-orange-500/10 text-orange-300";
   if (status === "failed") return "border border-rose-500/30 bg-rose-500/10 text-rose-300";
   if (status === "aborted") return "border border-zinc-600 bg-zinc-800/80 text-zinc-200";
@@ -47,12 +48,12 @@ export function StatusPill({ status }: { status: string }) {
 
 export function deploymentCardClass(status: string, selected: boolean) {
   if (selected) {
+    if (status === "current") return "border-violet-500/40 bg-violet-950/25 text-violet-100";
     if (status === "crashed") return "border-orange-500/40 bg-orange-950/30 text-orange-100";
     if (status === "failed") return "border-rose-500/40 bg-rose-950/35 text-rose-100";
     if (status === "aborted") return "border-zinc-600 bg-zinc-800/90 text-zinc-100";
     if (status === "building" || status === "queued") return "border-amber-500/40 bg-amber-950/25 text-amber-100";
-    if (status === "active" || status === "running" || status === "deployed") return "border-emerald-500/35 bg-emerald-950/25 text-emerald-100";
-    if (status === "superseded") return "border-zinc-700 bg-zinc-900 text-zinc-100";
+    if (status === "active" || status === "running" || status === "deployed" || status === "success") return "border-emerald-500/35 bg-emerald-950/25 text-emerald-100";
     return "border-[#4FB8B2]/35 bg-[#4FB8B2]/10 text-zinc-50";
   }
 
