@@ -363,7 +363,7 @@ export function RailwayImportModal({ open, onClose, onSuccess }: RailwayImportMo
                 {projectDetails.services.map((service) => {
                   const isChecked = selectedServiceIds.includes(service.id);
                   const lowercase = service.name.toLowerCase();
-                  const isDb = lowercase.includes("postgres") || lowercase.includes("mysql") || lowercase.includes("redis") || lowercase.includes("mongo");
+                  const isDb = lowercase.includes("timescale") || lowercase.includes("postgres") || lowercase.includes("mysql") || lowercase.includes("redis") || lowercase.includes("mongo");
                   
                   return (
                     <div
