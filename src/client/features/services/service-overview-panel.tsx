@@ -6,9 +6,10 @@ import {
   GithubIcon,
   PackageIcon,
   Settings01Icon,
-  VariableIcon,
+  VariableIcon
 } from "@hugeicons/core-free-icons";
 import type { Deployment, Domain, EnvVar, Service } from "../../api";
+import { DeployPlaneIcon } from "../../components/icons/deploy-plane-icon";
 import { AppIcon, FrameworkMark, StatusPill, shellButton } from "../../components/ui/primitives";
 import { formatRelativeTime, formatTime, shortSha } from "../../lib/format";
 import { formatBuildDuration } from "./service-format";
@@ -35,12 +36,32 @@ type OverviewStatProps = {
 };
 
 function displayStatus(status: string) {
-  return status === "running" ? "deployed" : status;
+  if (status === "running") return "current";
+  if (status === "superseded") return "success";
+  return status;
 }
 
 function repoLabel(service: Service, isDatabase: boolean, databaseEngine: string) {
   if (isDatabase) return databaseEngine ? `${databaseEngine} database` : "database";
   return service.repoFullName ?? service.repoUrl.replace(/^https?:\/\//, "").replace(/^github\.com\//, "");
+}
+
+function serviceLink(service: Service, isDatabase: boolean) {
+  if (isDatabase) {
+    const publicHost = service.databasePublicEnabled && service.databasePublicHostname
+      ? `${service.databasePublicHostname}:${service.hostPort}`
+      : "";
+    return {
+      label: publicHost || `${service.slug}:${service.internalPort}`,
+      href: ""
+    };
+  }
+
+  const href = service.primaryUrl || service.localUrl;
+  return {
+    label: href ? href.replace(/^https?:\/\//, "") : "No service link",
+    href
+  };
 }
 
 function valueOrAuto(value: null | string) {
@@ -138,6 +159,9 @@ export function ServiceOverviewPanel({
     ? formatBuildDuration(latestDeployment.startedAt ?? latestDeployment.createdAt, latestDeployment.finishedAt, nowMs)
     : null;
   const rootDir = service.rootDir || ".";
+  const sourceLabel = repoLabel(service, isDatabase, databaseEngine);
+  const sourceMeta = isDatabase ? "Managed database" : service.branch;
+  const link = serviceLink(service, isDatabase);
   const warnings = warningItems({ service, deployments, env, domains, isDatabase });
   const linkedSlugs = linkedServiceSlugs(env);
   const linkedServices = pageServices.filter((candidate) => candidate.id !== service.id && linkedSlugs.has(candidate.slug));
@@ -156,19 +180,27 @@ export function ServiceOverviewPanel({
                   <h2 className="truncate font-hero text-2xl font-extrabold tracking-tight text-zinc-100">{service.name}</h2>
                   <StatusPill status={displayStatus(service.status)} />
                 </div>
-                <div className="mt-1 truncate font-mono text-xs uppercase tracking-[0.16em] text-zinc-500">
-                  {repoLabel(service, isDatabase, databaseEngine)} • {isDatabase ? "managed database" : service.branch}
-                </div>
+                {link.href ? (
+                  <a className="mt-1 block truncate font-mono text-xs tracking-[0.16em] text-zinc-500 transition hover:text-[#7fe3dd]" href={link.href} target="_blank" rel="noreferrer">
+                    {link.label}
+                  </a>
+                ) : (
+                  <div className="mt-1 truncate font-mono text-xs tracking-[0.16em] text-zinc-500">{link.label}</div>
+                )}
               </div>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <OverviewStat label="Reachability" value={service.reachable ? "Reachable" : "Not reachable"} meta={service.localUrl.replace(/^https?:\/\//, "")} />
+              <OverviewStat label="Source" value={sourceLabel} meta={sourceMeta} />
               <OverviewStat label="Last deploy" value={service.lastDeployedAt ? formatRelativeTime(service.lastDeployedAt) : "Never"} meta={formatTime(service.lastDeployedAt)} />
               <OverviewStat label="Environment" value={`${env.length} variable${env.length === 1 ? "" : "s"}`} meta={env.length ? "Configured for deploy" : "No variables yet"} />
               <OverviewStat label={isDatabase ? "Engine" : "App port"} value={isDatabase ? databaseEngine || "database" : String(service.internalPort)} meta={isDatabase ? `Internal ${service.internalPort}` : `Host ${service.hostPort}`} />
             </div>
           </div>
+          <button type="button" className={`${shellButton("primary")} w-full lg:w-auto lg:min-w-40`} onClick={onDeploy} disabled={busy === "deploy"}>
+            <DeployPlaneIcon size={15} />
+            {busy === "deploy" ? "Deploying" : "Deploy"}
+          </button>
         </div>
       </section>
 
