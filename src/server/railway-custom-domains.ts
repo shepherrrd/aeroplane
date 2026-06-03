@@ -7,6 +7,7 @@ import { fetchRailwayGraphQL } from "./railway-graphql.js";
 type RailwayCustomDomain = {
   id: string;
   domain: string;
+  targetPort?: number | string | null;
 };
 
 type RailwayServiceDomain = {
@@ -30,7 +31,31 @@ function existingDomain(hostname: string) {
   return db.select({ id: domains.id }).from(domains).where(eq(domains.hostname, hostname)).get();
 }
 
+async function graphqlTypeFields(token: string, typeName: string) {
+  const query = `
+    query TypeFields($typeName: String!) {
+      __type(name: $typeName) {
+        fields {
+          name
+        }
+      }
+    }
+  `;
+  const data = await fetchRailwayGraphQL(token, query, { typeName });
+  const fields = data?.__type?.fields ?? [];
+  const names = fields
+    .map((field: { name?: string | null }) => field.name)
+    .filter((name: string | null | undefined): name is string => Boolean(name));
+  return new Set<string>(names);
+}
+
+function optionalFieldSelection(fields: Set<string>, fieldName: string) {
+  return fields.has(fieldName) ? `          ${fieldName}` : "";
+}
+
 export async function getRailwayServiceDomainInfo(token: string, projectId: string, environmentId: string, serviceId: string) {
+  const customDomainFields = await graphqlTypeFields(token, "CustomDomain").catch(() => new Set<string>());
+  const customDomainTargetPortSelection = optionalFieldSelection(customDomainFields, "targetPort");
   const query = `
     query Domains($projectId: String!, $environmentId: String!, $serviceId: String!) {
       domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
@@ -42,6 +67,7 @@ export async function getRailwayServiceDomainInfo(token: string, projectId: stri
         customDomains {
           id
           domain
+${customDomainTargetPortSelection}
         }
       }
     }
@@ -55,7 +81,7 @@ export async function getRailwayServiceDomainInfo(token: string, projectId: stri
 }
 
 export function railwayServiceTargetPort(domainInfo: RailwayServiceDomainInfo | null | undefined) {
-  for (const domain of domainInfo?.serviceDomains ?? []) {
+  for (const domain of [...(domainInfo?.serviceDomains ?? []), ...(domainInfo?.customDomains ?? [])]) {
     const port = Number(domain.targetPort);
     if (Number.isInteger(port) && port > 0 && port <= 65535) {
       return port;
