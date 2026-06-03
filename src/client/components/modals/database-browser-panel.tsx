@@ -1,6 +1,6 @@
 import { Add01Icon, DatabaseImportIcon, MoreVerticalIcon, Refresh03Icon } from "@hugeicons/core-free-icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, type DatabaseColumn, type DatabaseDataImport, type DatabaseRow, type DatabaseRowFilter, type DatabaseRowsResponse, type DatabaseTable } from "../../api";
+import { api, type DatabaseColumn, type DatabaseDataImport, type DatabaseRow, type DatabaseRowFilter, type DatabaseRowsResponse, type DatabaseRuntimeState, type DatabaseTable } from "../../api";
 import { Dropdown } from "../ui/dropdown";
 import { AppIcon, shellButton } from "../ui/primitives";
 import { DatabaseInsertSheet, validRedisType } from "./database-insert-sheet";
@@ -9,6 +9,7 @@ import { DatabaseTableGrid } from "./database-table-grid";
 import { MongoDocumentList } from "./mongo-document-list";
 import { MongoDocumentModal } from "./mongo-document-modal";
 import { DatabaseImportStatusBanner } from "./database-import-status-banner";
+import { DatabaseRuntimeStatePanel } from "./database-runtime-state-panel";
 
 function isPostgresFamilyDatabase(engine: string) {
   return engine === "postgres" || engine === "timescale";
@@ -63,6 +64,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
   const [pageOffset, setPageOffset] = useState(0);
   const [selectedSchema, setSelectedSchema] = useState("");
   const [engine, setEngine] = useState("");
+  const [runtimeState, setRuntimeState] = useState<DatabaseRuntimeState>("ready");
   const [mongoQuery, setMongoQuery] = useState("");
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -113,6 +115,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
       setSupported(result.supported);
       setEditable(result.editable);
       setEngine(result.engine);
+      setRuntimeState(result.runtimeState ?? "ready");
       setTables(result.tables);
       setMessage(result.message ?? "");
       const nextSchema = preferredSchema(result.tables, result.engine);
@@ -121,7 +124,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
         ?? "";
       setSelectedSchema(nextSchema);
       setSelectedTable(nextSelectedTable);
-      if (result.tables.length === 0) setRowsResult(null);
+      if (result.tables.length === 0 || (result.runtimeState && result.runtimeState !== "ready")) setRowsResult(null);
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "Could not load database tables");
     } finally {
@@ -219,6 +222,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     setSelectedTable("");
     setSelectedSchema("");
     setEngine("");
+    setRuntimeState("ready");
     setRowsResult(null);
     setAppliedFilters([]);
     setMongoQuery("");
@@ -407,6 +411,8 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     );
   }
 
+  const hasRuntimeNotice = runtimeState !== "ready";
+
   return (
     <div className="flex h-full min-h-0 gap-4">
       <aside className="flex min-h-0 w-64 flex-none flex-col overflow-hidden border border-zinc-800 bg-zinc-950/45">
@@ -428,7 +434,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tables.length === 0 ? (
-            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{busy === "tables" ? "Loading..." : nouns.empty}</div>
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{busy === "tables" ? "Loading..." : hasRuntimeNotice ? "Database not ready." : nouns.empty}</div>
           ) : visibleTables.length === 0 ? (
             <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{nouns.scopedEmpty}</div>
           ) : visibleTables.map((table) => (
@@ -512,7 +518,14 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
           </div>
         ) : null}
 
-        {!rowsResult ? (
+        {hasRuntimeNotice ? (
+          <DatabaseRuntimeStatePanel
+            state={runtimeState}
+            message={message}
+            busy={busy === "tables"}
+            onRefresh={() => void loadTables()}
+          />
+        ) : !rowsResult ? (
           <div className="flex min-h-0 flex-1 items-center justify-center border border-zinc-800 bg-zinc-950/45 px-5 py-8 text-center text-sm text-zinc-500">
             {busy ? "Loading data..." : `Choose ${engine === "redis" ? "a key" : engine === "mongodb" || engine === "mongo" ? "a collection" : "a table"} to inspect ${nouns.record}s.`}
           </div>
