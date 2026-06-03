@@ -31,6 +31,7 @@ if docker ps -a --format '{{.Names}}' | grep -qx deploy-buildkit; then
 else
   docker run -d \
     --name deploy-buildkit \
+    --restart unless-stopped \
     --privileged \
     -p 127.0.0.1:1234:1234 \
     moby/buildkit:latest \
