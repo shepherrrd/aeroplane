@@ -1,7 +1,6 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   AddSquareIcon,
-  ArrowLeft01Icon,
   CloudServerIcon,
   CheckmarkCircle02Icon,
   Cancel01Icon,
@@ -13,10 +12,11 @@ import {
   Globe02Icon
 } from "@hugeicons/core-free-icons";
 import { FormEvent, startTransition, useCallback, useEffect, useState } from "react";
-import { api, type ProjectDetail } from "../api";
+import { api, type ProjectCard, type ProjectDetail } from "../api";
 import { AppIcon, FieldLabel, FormInput, FrameworkMark, shellButton } from "../components/ui/primitives";
 import { CreateServiceModal } from "../components/modals/create-service-modal";
 import { DeleteProjectModal } from "../components/modals/delete-project-modal";
+import { ProjectPageToolbar } from "../features/projects/project-page-toolbar";
 import type { ServiceFormPayload } from "../features/services/service-form-types";
 import { formatTime } from "../lib/format";
 import { usePageTitle } from "../lib/page-title";
@@ -39,6 +39,7 @@ function StatusPill({ status }: { status: string }) {
 export function ProjectPage({ projectSlug }: { projectSlug: string }) {
   const navigate = useNavigate();
   const [project, setProject] = useState<null | ProjectDetail>(null);
+  const [projects, setProjects] = useState<ProjectCard[]>([]);
   const [createServiceOpen, setCreateServiceOpen] = useState(false);
   const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
@@ -49,9 +50,13 @@ export function ProjectPage({ projectSlug }: { projectSlug: string }) {
 
   const loadProject = useCallback(async () => {
     try {
-      const projectData = await api.project(projectSlug);
+      const [projectData, projectListData] = await Promise.all([
+        api.project(projectSlug),
+        api.projects().catch(() => ({ projects: [] }))
+      ]);
       startTransition(() => {
         setProject(projectData.project);
+        setProjects(projectListData.projects);
         setError("");
       });
     } catch (issue) {
@@ -92,6 +97,18 @@ export function ProjectPage({ projectSlug }: { projectSlug: string }) {
     });
   }
 
+  function navigateToProjects() {
+    void navigate({ to: "/" });
+  }
+
+  function navigateToProject(nextProjectSlug: string) {
+    void navigate({ to: "/$projectSlug", params: { projectSlug: nextProjectSlug } });
+  }
+
+  function navigateToServiceOverview(serviceSlug: string) {
+    void navigate({ to: "/$projectSlug/$serviceSlug", params: { projectSlug, serviceSlug } });
+  }
+
   async function saveProject(event: FormEvent) {
     event.preventDefault();
     if (!project) return;
@@ -104,6 +121,7 @@ export function ProjectPage({ projectSlug }: { projectSlug: string }) {
       });
       startTransition(() => {
         setProject(result.project);
+        setProjects((current) => current.map((item) => (item.id === result.project.id ? result.project : item)));
         setEditingProject(false);
       });
     } catch (issue) {
@@ -140,10 +158,13 @@ export function ProjectPage({ projectSlug }: { projectSlug: string }) {
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 pb-24 pt-14 sm:px-6 lg:pl-14 lg:pr-10">
           <section className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 flex-1">
-              <Link to="/" className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500 transition hover:text-[#4FB8B2]">
-                <AppIcon icon={ArrowLeft01Icon} size={16} />
-                All projects
-              </Link>
+              <ProjectPageToolbar
+                projects={projects}
+                currentProject={project}
+                fallbackProjectName={projectSlug}
+                onBack={navigateToProjects}
+                onProjectSelect={navigateToProject}
+              />
               {editingProject ? (
                 <form onSubmit={saveProject} className="mt-4 max-w-2xl space-y-3">
                   <div>
@@ -255,11 +276,11 @@ export function ProjectPage({ projectSlug }: { projectSlug: string }) {
                     role="button"
                     tabIndex={0}
                     className="group relative border border-zinc-800 bg-zinc-950/60 p-5 text-left transition-colors hover:border-[#4FB8B2]/35 hover:bg-zinc-900/70"
-                    onClick={() => void navigate({ to: "/$projectSlug/$serviceSlug/$serviceTab", params: { projectSlug, serviceSlug: service.slug, serviceTab: "deployments" } })}
+                    onClick={() => navigateToServiceOverview(service.slug)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        void navigate({ to: "/$projectSlug/$serviceSlug/$serviceTab", params: { projectSlug, serviceSlug: service.slug, serviceTab: "deployments" } });
+                        navigateToServiceOverview(service.slug);
                       }
                     }}
                   >
