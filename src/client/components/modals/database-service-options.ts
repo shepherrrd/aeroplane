@@ -3,7 +3,7 @@ export type DatabaseType = "postgres" | "mysql" | "redis" | "mongodb" | "clickho
 export type DatabaseOption = {
   key: DatabaseType;
   name: string;
-  logoUrl: string;
+  logoUrl: null | string;
   logoClassName?: string;
   defaultPort: number;
 };
@@ -19,36 +19,40 @@ export type DatabaseCredentialField = {
   placeholder: string;
 };
 
+function databaseIconUrl(slug: DatabaseType) {
+  return `/api/assets/framework-icons/${slug}.svg`;
+}
+
 export const DATABASE_OPTIONS: DatabaseOption[] = [
   {
     key: "postgres",
     name: "PostgreSQL",
-    logoUrl: "https://svgl.app/library/postgresql.svg",
+    logoUrl: databaseIconUrl("postgres"),
     defaultPort: 5432
   },
   {
     key: "mysql",
     name: "MySQL",
-    logoUrl: "https://svgl.app/library/mysql-icon-dark.svg",
+    logoUrl: databaseIconUrl("mysql"),
     defaultPort: 3306
   },
   {
     key: "redis",
     name: "Redis",
-    logoUrl: "https://svgl.app/library/redis.svg",
+    logoUrl: databaseIconUrl("redis"),
     defaultPort: 6379
   },
   {
     key: "mongodb",
     name: "MongoDB",
-    logoUrl: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mongodb/mongodb-original.svg",
+    logoUrl: databaseIconUrl("mongodb"),
     logoClassName: "h-6 w-6 object-contain",
     defaultPort: 27017
   },
   {
     key: "clickhouse",
     name: "ClickHouse",
-    logoUrl: "https://cdn.simpleicons.org/clickhouse",
+    logoUrl: null,
     defaultPort: 8123
   }
 ];
