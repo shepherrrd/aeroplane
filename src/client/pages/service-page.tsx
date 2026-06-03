@@ -56,12 +56,7 @@ export function ServicePage({
   }
 
   function navigateToService(nextServiceSlug: string) {
-    const segment = serviceTabToRouteSegment[selectedTab];
-    if (segment === "overview") {
-      void navigate({ to: "/$projectSlug/$serviceSlug", params: { projectSlug, serviceSlug: nextServiceSlug } });
-      return;
-    }
-    void navigate({ to: "/$projectSlug/$serviceSlug/$serviceTab", params: { projectSlug, serviceSlug: nextServiceSlug, serviceTab: segment } });
+    void navigate({ to: "/$projectSlug/$serviceSlug", params: { projectSlug, serviceSlug: nextServiceSlug } });
   }
 
   if (error) {
