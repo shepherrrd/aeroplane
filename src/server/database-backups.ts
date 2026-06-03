@@ -6,6 +6,7 @@ import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { nanoid } from "nanoid";
 import { config } from "./config.js";
+import { isMongoDatabase, isPostgresFamilyDatabase } from "./database-engine.js";
 import { databaseTypeForService, isDatabaseService } from "./database-urls.js";
 import { runDockerExec, type DatabaseContext } from "./database-viewer-shared.js";
 import { containerNameForService, getServiceById } from "./deploy.js";
@@ -218,9 +219,9 @@ async function createRedisBackup(ctx: DatabaseContext, backupId: string) {
 }
 
 async function createLocalBackup(ctx: DatabaseContext, backupId: string) {
-  if (ctx.dbType === "postgres") return createPostgresBackup(ctx, backupId);
+  if (isPostgresFamilyDatabase(ctx.dbType)) return createPostgresBackup(ctx, backupId);
   if (ctx.dbType === "mysql") return createMysqlBackup(ctx, backupId);
-  if (ctx.dbType === "mongodb" || ctx.dbType === "mongo") return createMongoBackup(ctx, backupId);
+  if (isMongoDatabase(ctx.dbType)) return createMongoBackup(ctx, backupId);
   if (ctx.dbType === "redis") return createRedisBackup(ctx, backupId);
   throw new Error(`${ctx.dbType} backups are not available yet`);
 }
