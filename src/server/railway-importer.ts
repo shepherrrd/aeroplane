@@ -6,6 +6,7 @@ import { allocateHostPort } from "./deploy.js";
 import { writeAndReloadCaddy } from "./caddy.js";
 import { buildDatabaseConnectionUrl, defaultDatabasePort, generateDatabaseHostname, generatedDatabaseEnvVars, normalizeDatabaseType } from "./database-urls.js";
 import { linkProjectAppDatabaseConnectionEnv, syncProjectDatabaseConnectionEnv } from "./database-service-linker.js";
+import { isPostgresFamilyDatabase } from "./database-engine.js";
 import { ensureDefaultDomainForService } from "./service-domains.js";
 import { recordServiceImportSource } from "./service-import-sources.js";
 import { getSystemSettings } from "./system-settings.js";
@@ -702,7 +703,7 @@ ${serviceInstanceCommandSelection}
       activePort: null,
       databasePublicEnabled: isDatabase,
       databasePublicHostname,
-      postgresLogicalReplicationEnabled: false,
+      postgresLogicalReplicationEnabled: isDatabase && isPostgresFamilyDatabase(repoFullName.split(":")[1] || "postgres"),
       status: "idle",
       lastDeployedAt: null,
       createdAt: timestamp,
