@@ -7,6 +7,7 @@ type GitHubRepo = {
   name: string;
   private: boolean;
   default_branch: string;
+  pushed_at: null | string;
   updated_at: string;
 };
 
@@ -52,6 +53,7 @@ type GitHubStatus = {
 };
 
 const installationTokenCache = new Map<number, InstallationTokenCacheEntry>();
+const githubPageSize = 100;
 
 function hasGitHubAppConfig() {
   return Boolean(config.githubAppId && config.githubAppPrivateKey);
@@ -122,6 +124,33 @@ async function githubAppRequest<T>(path: string, options: { body?: unknown } = {
   });
 }
 
+function paginatedGitHubPath(path: string, page: number) {
+  const url = new URL(path, "https://api.github.com");
+  url.searchParams.set("per_page", String(githubPageSize));
+  url.searchParams.set("page", String(page));
+  return `${url.pathname}${url.search}`;
+}
+
+async function githubPaginatedRequest<Item, Response>(
+  path: string,
+  getItems: (response: Response) => Item[],
+  options: { token?: string; tokenKind?: "bearer" | "token" } = {}
+) {
+  const items: Item[] = [];
+
+  for (let page = 1; ; page += 1) {
+    const response = await githubRequest<Response>(paginatedGitHubPath(path, page), options);
+    const pageItems = getItems(response);
+    items.push(...pageItems);
+
+    if (pageItems.length < githubPageSize) {
+      break;
+    }
+  }
+
+  return items;
+}
+
 async function getInstallationToken(installationId: number) {
   const cached = installationTokenCache.get(installationId);
   if (cached && cached.expiresAt > Date.now() + 60_000) {
@@ -153,27 +182,33 @@ async function getInstallationTokenForRepo(repoFullName: string) {
 }
 
 async function listReposViaApp(query?: string) {
-  const installations = await githubAppRequest<GitHubInstallation[]>("/app/installations");
+  const installations = await githubPaginatedRequest<GitHubInstallation, GitHubInstallation[]>(
+    "/app/installations",
+    (response) => response,
+    {
+      token: createGitHubAppJwt(),
+      tokenKind: "bearer"
+    }
+  );
   const normalizedQuery = query?.trim().toLowerCase();
   const repos: GitHubRepo[] = [];
   const seen = new Set<number>();
 
   for (const installation of installations) {
     const token = await getInstallationToken(installation.id);
-    const response = normalizedQuery
-      ? await githubRequest<GitHubSearchResponse>(
-          `/search/repositories?per_page=100&q=${encodeURIComponent(buildInstallationSearchQuery(query ?? "", installation))}`,
+    const candidates = normalizedQuery
+      ? await githubPaginatedRequest<GitHubRepo, GitHubSearchResponse>(
+          `/search/repositories?q=${encodeURIComponent(buildInstallationSearchQuery(query ?? "", installation))}`,
+          (response) => response.items,
           {
             token,
             tokenKind: "token"
           }
         )
-      : await githubRequest<{ repositories: GitHubRepo[] }>("/installation/repositories?per_page=100", {
+      : await githubPaginatedRequest<GitHubRepo, { repositories: GitHubRepo[] }>("/installation/repositories", (response) => response.repositories, {
           token,
           tokenKind: "token"
         });
-
-    const candidates = "items" in response ? response.items : response.repositories;
 
     for (const repo of candidates) {
       if (seen.has(repo.id)) continue;
@@ -200,12 +235,14 @@ async function listReposViaToken(query?: string) {
   }
 
   const repos = query?.trim()
-    ? (
-        await githubRequest<GitHubSearchResponse>(`/search/repositories?per_page=100&q=${encodeURIComponent(query)}`, {
+    ? await githubPaginatedRequest<GitHubRepo, GitHubSearchResponse>(
+        `/search/repositories?q=${encodeURIComponent(query)}`,
+        (response) => response.items,
+        {
           tokenKind: "bearer"
-        })
-      ).items
-    : await githubRequest<GitHubRepo[]>("/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member", {
+        }
+      )
+    : await githubPaginatedRequest<GitHubRepo, GitHubRepo[]>("/user/repos?sort=pushed&affiliation=owner,collaborator,organization_member", (response) => response, {
         tokenKind: "bearer"
       });
   const normalizedQuery = query?.trim().toLowerCase();
@@ -213,6 +250,11 @@ async function listReposViaToken(query?: string) {
   return repos.filter(
     (repo) => !normalizedQuery || repo.full_name.toLowerCase().includes(normalizedQuery) || repo.name.toLowerCase().includes(normalizedQuery)
   );
+}
+
+function repoLastPushedTime(repo: GitHubRepo) {
+  const time = new Date(repo.pushed_at ?? repo.updated_at).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function buildInstallationSearchQuery(query: string, installation: GitHubInstallation) {
@@ -269,13 +311,14 @@ export async function listConnectedRepos(query?: string) {
   const repos = hasGitHubAppConfig() ? await listReposViaApp(query) : await listReposViaToken(query);
 
   return repos
-    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+    .sort((left, right) => repoLastPushedTime(right) - repoLastPushedTime(left))
     .map((repo) => ({
       id: String(repo.id),
       fullName: repo.full_name,
       name: repo.name,
       private: repo.private,
       defaultBranch: repo.default_branch,
+      pushedAt: repo.pushed_at ?? repo.updated_at,
       updatedAt: repo.updated_at,
       cloneUrl: repoUrlFromFullName(repo.full_name)
     }));
