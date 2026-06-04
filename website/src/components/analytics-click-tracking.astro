@@ -1,0 +1,32 @@
+<script>
+  const trackingFlag = "__aeroplane_analytics_click_tracking";
+
+  if (!window[trackingFlag]) {
+    window[trackingFlag] = true;
+
+    document.querySelectorAll("[data-analytics-event]").forEach((element) => {
+      element.addEventListener("click", () => {
+        const eventName = element.getAttribute("data-analytics-event");
+
+        if (!eventName) {
+          return;
+        }
+
+        const posthog = window["posthog"];
+
+        if (!posthog || typeof posthog.capture !== "function") {
+          return;
+        }
+
+        const href = element instanceof HTMLAnchorElement ? element.href : undefined;
+        const label = element.textContent?.trim().replace(/\s+/g, " ").slice(0, 120);
+
+        posthog.capture(eventName, {
+          href,
+          label,
+          placement: element.getAttribute("data-analytics-placement") || undefined,
+        });
+      });
+    });
+  }
+</script>
