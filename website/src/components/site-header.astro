@@ -18,7 +18,12 @@ const navItems = [
     {navItems.map((item) => <a href={item.href}>{item.label}</a>)}
   </nav>
 
-  <a class="aero-button secondary hidden md:inline-flex" href="https://github.com/akinloluwami/aeroplane">
+  <a
+    class="aero-button secondary hidden md:inline-flex"
+    data-analytics-event="github_link_clicked"
+    data-analytics-placement="site_header"
+    href="https://github.com/akinloluwami/aeroplane"
+  >
     GitHub
   </a>
 </header>
