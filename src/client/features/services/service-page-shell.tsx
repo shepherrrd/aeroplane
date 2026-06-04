@@ -52,6 +52,7 @@ import { RuntimeLogsPanel } from "./service-log-panels";
 import { ServiceOverviewPanel } from "./service-overview-panel";
 import { ServicePageSkeleton } from "./service-page-skeleton";
 import { RedeployRequiredToast } from "./redeploy-required-toast";
+import { RuntimeModeControl } from "../../components/ui/runtime-mode-control";
 import type { ServiceTab } from "./service-tabs";
 import { dockerImageForService, dockerImageRepoFullName, isDatabaseService, isDockerImageService } from "../../../shared/service-source";
 
@@ -117,6 +118,7 @@ export function ServicePageShell({
     buildCommand: "",
     startCommand: "",
     staticOutput: "",
+    runtimeMode: "web" as "web" | "worker",
     internalPort: 8080,
     databasePublicEnabled: true,
     databasePublicHostname: "",
@@ -169,6 +171,7 @@ export function ServicePageShell({
           buildCommand: result.service.buildCommand ?? "",
           startCommand: result.service.startCommand ?? "",
           staticOutput: result.service.staticOutput ?? "",
+          runtimeMode: result.service.runtimeMode,
           internalPort: result.service.internalPort,
           databasePublicEnabled: result.service.databasePublicEnabled,
           databasePublicHostname: result.service.databasePublicHostname ?? "",
@@ -400,6 +403,7 @@ export function ServicePageShell({
         buildCommand: isDatabase || isDockerImage ? undefined : textOrNull(settings.buildCommand),
         startCommand: isDatabase || isDockerImage ? undefined : textOrNull(settings.startCommand),
         staticOutput: isDatabase || isDockerImage ? undefined : textOrNull(settings.staticOutput),
+        runtimeMode: isDatabase ? undefined : settings.runtimeMode,
         internalPort: Number(settings.internalPort),
         databasePublicEnabled: isDatabase ? true : undefined,
         databasePublicHostname: isDatabase ? settings.databasePublicHostname || undefined : undefined,
@@ -462,6 +466,7 @@ export function ServicePageShell({
   const service = overview?.service;
   const isDatabase = service ? isDatabaseService(service) : false;
   const isDockerImage = service ? isDockerImageService(service) : false;
+  const isWorker = service?.runtimeMode === "worker";
   const isGitUrlSource = Boolean(service && !isDatabase && !isDockerImage && !settings.repoFullName && settings.repoUrl);
   const databaseEngine = service?.repoFullName?.startsWith("database:")
     ? service.repoFullName.slice("database:".length).toLowerCase()
@@ -473,7 +478,7 @@ export function ServicePageShell({
     ["deployments", PackageIcon],
     ["logs", LeftToRightListStarIcon],
     ["environment", VariableIcon],
-    ["domains", Globe02Icon],
+    ...(!isWorker ? [["domains", Globe02Icon] as [ServiceTab, unknown]] : []),
     ["settings", GithubIcon]
   ];
   const databaseTabs: Array<[ServiceTab, unknown]> = [
@@ -505,14 +510,14 @@ export function ServicePageShell({
 
   useEffect(() => {
     if (!service) return;
-    if (isDatabase && selectedTab === "domains") {
+    if ((isDatabase || isWorker) && selectedTab === "domains") {
       onTabChange("deployments");
     } else if (isDatabase && selectedTab === "sql" && !hasSqlConsole) {
       onTabChange("deployments");
     } else if (!isDatabase && (selectedTab === "data" || selectedTab === "sql" || selectedTab === "backups")) {
       onTabChange("deployments");
     }
-  }, [hasSqlConsole, isDatabase, onTabChange, selectedTab, service]);
+  }, [hasSqlConsole, isDatabase, isWorker, onTabChange, selectedTab, service]);
 
   if (!overview && overviewLoading && !error) return <ServicePageSkeleton />;
 
@@ -608,7 +613,7 @@ export function ServicePageShell({
                 />
               ) : null}
 
-              {selectedTab === "domains" && !isDatabase ? (
+              {selectedTab === "domains" && !isDatabase && !isWorker ? (
                 <ServiceDomainsPanel
                   serviceId={serviceId}
                   domains={domains}
@@ -728,10 +733,23 @@ export function ServicePageShell({
                           <FieldLabel>Service name</FieldLabel>
                           <FormInput value={settings.name} onChange={(event) => setSettings({ ...settings, name: event.target.value })} />
                         </div>
-                        <div>
-                          <FieldLabel>App port</FieldLabel>
-                          <FormInput type="number" value={settings.internalPort} onChange={(event) => setSettings({ ...settings, internalPort: Number(event.target.value) })} />
+                        <div className="xl:col-span-2">
+                          <FieldLabel>Runtime mode</FieldLabel>
+                          <RuntimeModeControl
+                            value={settings.runtimeMode}
+                            onChange={(runtimeMode) => setSettings((current) => ({
+                              ...current,
+                              runtimeMode,
+                              staticOutput: runtimeMode === "worker" ? "" : current.staticOutput
+                            }))}
+                          />
                         </div>
+                        {settings.runtimeMode !== "worker" ? (
+                          <div>
+                            <FieldLabel>App port</FieldLabel>
+                            <FormInput type="number" value={settings.internalPort} onChange={(event) => setSettings({ ...settings, internalPort: Number(event.target.value) })} />
+                          </div>
+                        ) : null}
                         <div>
                           <FieldLabel>Install command</FieldLabel>
                           <FormInput value={settings.installCommand} onChange={(event) => setSettings({ ...settings, installCommand: event.target.value })} placeholder="auto" />
@@ -744,10 +762,12 @@ export function ServicePageShell({
                           <FieldLabel>Start command</FieldLabel>
                           <FormInput value={settings.startCommand} onChange={(event) => setSettings({ ...settings, startCommand: event.target.value })} placeholder="auto" />
                         </div>
-                        <div>
-                          <FieldLabel>Static output</FieldLabel>
-                          <FormInput value={settings.staticOutput} onChange={(event) => setSettings({ ...settings, staticOutput: event.target.value })} placeholder="auto" />
-                        </div>
+                        {settings.runtimeMode !== "worker" ? (
+                          <div>
+                            <FieldLabel>Static output</FieldLabel>
+                            <FormInput value={settings.staticOutput} onChange={(event) => setSettings({ ...settings, staticOutput: event.target.value })} placeholder="auto" />
+                          </div>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -762,6 +782,11 @@ export function ServicePageShell({
                               ? `Public TCP ${service.databasePublicHostname}:${service.hostPort}`
                               : `Public TCP port ${service?.hostPort}`}
                           </span>
+                        </div>
+                      ) : isWorker && service?.reachable ? (
+                        <div className="flex items-center gap-3 border border-zinc-700 bg-zinc-900/85 px-3 py-3 text-sm text-zinc-200">
+                          <BrowserIconFallback size={17} />
+                          <span className="truncate">Worker process running</span>
                         </div>
                       ) : service?.reachable ? (
                         <a
