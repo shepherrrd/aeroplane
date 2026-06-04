@@ -59,6 +59,13 @@ function serviceLink(service: Service, isDatabase: boolean) {
     };
   }
 
+  if (service.runtimeMode === "worker") {
+    return {
+      label: "Background worker",
+      href: ""
+    };
+  }
+
   const href = service.primaryUrl || service.localUrl;
   return {
     label: href ? href.replace(/^https?:\/\//, "") : "No service link",
@@ -101,11 +108,12 @@ function warningItems({
 }) {
   const warnings: string[] = [];
   const latest = deployments[0];
+  const isWorker = service.runtimeMode === "worker";
 
   if (!latest) warnings.push("No deployment has run yet.");
   if (latest?.status === "failed") warnings.push("Latest deployment failed.");
   if (!service.reachable && service.status !== "building" && service.status !== "queued") warnings.push("Runtime is not reachable.");
-  if (!isDatabase && domains.some((domain) => domain.status !== "active")) warnings.push("One or more domains still need DNS verification.");
+  if (!isDatabase && !isWorker && domains.some((domain) => domain.status !== "active")) warnings.push("One or more domains still need DNS verification.");
   if (!isDatabase && !isDockerImage && !service.repoFullName && !service.repoUrl) warnings.push("No source repository is connected.");
 
   return warnings;
@@ -161,9 +169,10 @@ export function ServiceOverviewPanel({
     ? formatBuildDuration(latestDeployment.startedAt ?? latestDeployment.createdAt, latestDeployment.finishedAt, nowMs)
     : null;
   const isDockerImage = isDockerImageService(service);
+  const isWorker = service.runtimeMode === "worker";
   const rootDir = service.rootDir || ".";
   const sourceLabel = repoLabel(service, isDatabase, databaseEngine);
-  const sourceMeta = isDatabase ? "Managed database" : isDockerImage ? "Docker image" : service.branch;
+  const sourceMeta = isDatabase ? "Managed database" : isWorker ? "Background worker" : isDockerImage ? "Docker image" : service.branch;
   const link = serviceLink(service, isDatabase);
   const warnings = warningItems({ service, deployments, env, domains, isDatabase, isDockerImage });
   const linkedSlugs = linkedServiceSlugs(env);
@@ -197,7 +206,11 @@ export function ServiceOverviewPanel({
               <OverviewStat label="Source" value={sourceLabel} meta={sourceMeta} />
               <OverviewStat label="Last deploy" value={service.lastDeployedAt ? formatRelativeTime(service.lastDeployedAt) : "Never"} meta={formatTime(service.lastDeployedAt)} />
               <OverviewStat label="Environment" value={`${env.length} variable${env.length === 1 ? "" : "s"}`} meta={env.length ? "Configured for deploy" : "No variables yet"} />
-              <OverviewStat label={isDatabase ? "Engine" : "App port"} value={isDatabase ? databaseEngine || "database" : String(service.internalPort)} meta={isDatabase ? `Internal ${service.internalPort}` : `Host ${service.hostPort}`} />
+              <OverviewStat
+                label={isDatabase ? "Engine" : isWorker ? "Mode" : "App port"}
+                value={isDatabase ? databaseEngine || "database" : isWorker ? "Worker" : String(service.internalPort)}
+                meta={isDatabase ? `Internal ${service.internalPort}` : isWorker ? "Process health" : `Host ${service.hostPort}`}
+              />
             </div>
           </div>
           <button type="button" className={`${shellButton("primary")} w-full lg:w-auto lg:min-w-40`} onClick={onDeploy} disabled={busy === "deploy"}>
@@ -276,17 +289,19 @@ export function ServiceOverviewPanel({
           <SectionHeader icon={Settings01Icon} title="Runtime Config" />
           {isDockerImage ? (
             <div>
+              <DefinitionRow label="Mode" value={isWorker ? "Background worker" : "Web service"} />
               <DefinitionRow label="Docker image" value={sourceLabel} />
-              <DefinitionRow label="Internal port" value={String(service.internalPort)} />
-              <DefinitionRow label="Host port" value={String(service.hostPort)} />
+              {!isWorker ? <DefinitionRow label="Internal port" value={String(service.internalPort)} /> : null}
+              {!isWorker ? <DefinitionRow label="Host port" value={String(service.hostPort)} /> : null}
             </div>
           ) : (
             <div>
+              <DefinitionRow label="Mode" value={isDatabase ? "Database" : isWorker ? "Background worker" : "Web service"} />
               <DefinitionRow label="Root directory" value={rootDir} />
               <DefinitionRow label="Install" value={valueOrAuto(service.installCommand)} />
               <DefinitionRow label="Build" value={valueOrAuto(service.buildCommand)} />
               <DefinitionRow label="Start" value={valueOrAuto(service.startCommand)} />
-              <DefinitionRow label="Static output" value={valueOrAuto(service.staticOutput)} />
+              {!isWorker ? <DefinitionRow label="Static output" value={valueOrAuto(service.staticOutput)} /> : null}
             </div>
           )}
         </section>
