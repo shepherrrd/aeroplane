@@ -12,16 +12,18 @@ export function surfaceClass(extra = "") {
 }
 
 export function shellButton(variant: "primary" | "secondary" | "ghost" | "danger" = "secondary") {
+  const base = "inline-flex min-h-10 items-center justify-center gap-2 whitespace-nowrap px-3.5 py-2.5 text-center font-mono text-[11px] font-semibold uppercase leading-none tracking-normal transition disabled:opacity-60";
+
   if (variant === "primary") {
-    return "inline-flex items-center justify-center gap-2 border border-[#4FB8B2]/45 bg-[#4FB8B2]/15 px-3.5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7fe3dd] transition hover:bg-[#4FB8B2]/25 disabled:opacity-60";
+    return `${base} border border-[#4FB8B2]/45 bg-[#4FB8B2]/15 text-[#7fe3dd] hover:bg-[#4FB8B2]/25`;
   }
   if (variant === "danger") {
-    return "inline-flex items-center justify-center gap-2 border border-rose-500/35 bg-rose-500/10 px-3.5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-200 transition hover:bg-rose-500/15 disabled:opacity-60";
+    return `${base} border border-rose-500/35 bg-rose-500/10 text-rose-200 hover:bg-rose-500/15`;
   }
   if (variant === "ghost") {
-    return "inline-flex items-center justify-center gap-2 px-3 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-60";
+    return `${base} px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white`;
   }
-  return "inline-flex items-center justify-center gap-2 border border-zinc-800 bg-zinc-900/70 px-3.5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-200 transition hover:border-zinc-700 hover:bg-zinc-900 disabled:opacity-60";
+  return `${base} border border-zinc-800 bg-zinc-900/70 text-zinc-200 hover:border-zinc-700 hover:bg-zinc-900`;
 }
 
 export function chipClass(active: boolean) {
