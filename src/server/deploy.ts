@@ -31,6 +31,8 @@ import { railpackBuildEnv, railpackBuildEnvArgs } from "./railpack-build-env.js"
 import { saveRedisDatasetIfRunning, stopRedisContainerForReplacement } from "./redis-persistence.js";
 import { deploymentConcurrency } from "./system-settings.js";
 import { buildkitStartHint, ensureBuildkitRunning } from "./buildkit.js";
+import { dockerImageForService, isDockerImageService } from "../shared/service-source.js";
+import { ensurePostgresLogicalReplication } from "./postgres-logical-replication.js";
 
 type RunOptions = {
   cwd?: string;
@@ -731,6 +733,16 @@ async function runDeployment(deployment: Deployment, service: Service) {
 
       appendDeploymentLog(deployment.id, `Running container mapping ${bindHost}:${service.hostPort} to internal port ${service.internalPort}...`);
       await runCommand("docker", dockerArgs, deployment.id, { redact: secrets });
+      if (isPostgresFamilyDatabase(dbType)) {
+        await ensurePostgresLogicalReplication({
+          service,
+          containerName,
+          env,
+          runDocker: (args) => runCommand("docker", args, deployment.id, { redact: secrets }),
+          runBufferedDocker: (args) => runBufferedCommand("docker", args),
+          log: (line) => appendDeploymentLog(deployment.id, line, "system", secrets)
+        });
+      }
 
       const deployedAt = now();
       supersedeRunningDeployments(service.id);
@@ -748,6 +760,139 @@ async function runDeployment(deployment: Deployment, service: Service) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown database deployment error";
       appendDeploymentLog(deployment.id, `Database provisioning failed: ${message}`, "stderr", secrets);
+      db.update(deployments).set({ status: "failed", finishedAt: now() }).where(eq(deployments.id, deployment.id)).run();
+      db.update(services).set({ status: "failed", updatedAt: now() }).where(eq(services.id, service.id)).run();
+    }
+    return;
+  }
+
+  if (isDockerImageService(service)) {
+    const imageName = dockerImageForService(service);
+    if (!imageName) {
+      db.update(deployments)
+        .set({ status: "failed", startedAt, finishedAt: now(), containerName })
+        .where(eq(deployments.id, deployment.id))
+        .run();
+      db.update(services).set({ status: "failed", updatedAt: now() }).where(eq(services.id, service.id)).run();
+      appendDeploymentLog(deployment.id, "Docker image deployment failed: service is missing an image reference.", "stderr");
+      return;
+    }
+
+    db.update(deployments)
+      .set({ status: "building", startedAt, imageTag: imageName, containerName })
+      .where(eq(deployments.id, deployment.id))
+      .run();
+    db.update(services).set({ status: "building", updatedAt: now() }).where(eq(services.id, service.id)).run();
+
+    appendDeploymentLog(deployment.id, `Preparing Docker image service ${service.name}.`);
+    ensureDefaultDomainForService(service);
+
+    try {
+      if (config.deployDryRun) {
+        appendDeploymentLog(deployment.id, "Dry-run mode is enabled. Skipping Docker pull and run.");
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 800));
+        const deployedAt = now();
+        supersedeRunningDeployments(service.id);
+        db.update(deployments)
+          .set({ status: "running", finishedAt: deployedAt, imageTag: imageName, containerName })
+          .where(eq(deployments.id, deployment.id))
+          .run();
+        db.update(services)
+          .set({ status: "active", lastDeployedAt: deployedAt, updatedAt: deployedAt })
+          .where(eq(services.id, service.id))
+          .run();
+        const caddy = await writeAndReloadCaddy();
+        appendDeploymentLog(deployment.id, caddy.ok ? "Caddy config reloaded." : `Caddy reload skipped/failed: ${caddy.detail}`);
+        appendDeploymentLog(deployment.id, `Dry-run Docker image deployment marked running at ${preferredServiceUrl(service)}.`);
+        return;
+      }
+
+      await ensureDockerAvailable(deployment.id);
+      appendDeploymentLog(deployment.id, `Pulling Docker image: ${imageName}`);
+      await runCommand("docker", ["pull", imageName], deployment.id, { redact: secrets });
+
+      await ensureProjectRuntimeNetwork({
+        service,
+        containerNameForService,
+        runDocker: (args) => runCommand("docker", args, deployment.id),
+        runBufferedDocker: (args) => runBufferedCommand("docker", args),
+        log: (line) => appendDeploymentLog(deployment.id, line)
+      });
+
+      const tempPort = await getEphemeralFreePort();
+      const tempContainerName = `${containerName}-${deployment.id}`;
+      appendDeploymentLog(deployment.id, `Allocated ephemeral port ${tempPort} for Docker image rollout.`);
+
+      const dockerArgs = [
+        "run",
+        "-d",
+        "--restart",
+        "unless-stopped",
+        "--name",
+        tempContainerName,
+        ...runtimeNetworkArgs(service),
+        "-p",
+        `127.0.0.1:${tempPort}:${runtimePort}`
+      ];
+      for (const [key, value] of Object.entries({ ...env, PORT: String(runtimePort) })) {
+        dockerArgs.push("--env", `${key}=${value}`);
+      }
+      dockerArgs.push(imageName);
+
+      appendDeploymentLog(deployment.id, `Starting Docker image container ${tempContainerName} mapping 127.0.0.1:${tempPort} to internal ${runtimePort}...`);
+      await runCommand("docker", dockerArgs, deployment.id, { redact: secrets });
+
+      appendDeploymentLog(deployment.id, `Probing port ${tempPort} for startup TCP health check...`);
+      try {
+        await probeContainerStartup(tempPort, tempContainerName);
+        appendDeploymentLog(deployment.id, "Startup TCP probe succeeded. Container is healthy.");
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        appendDeploymentLog(deployment.id, `Startup health check failed: ${errMsg}.`, "stderr");
+        await appendContainerLogs(tempContainerName, deployment.id, secrets);
+        appendDeploymentLog(deployment.id, "Cleaning up temporary container...", "stderr");
+        await runCommand("docker", ["rm", "-f", tempContainerName], deployment.id).catch(() => {});
+        throw new Error(`Health check failed: ${errMsg}`);
+      }
+
+      db.update(services).set({ activePort: tempPort }).where(eq(services.id, service.id)).run();
+
+      appendDeploymentLog(deployment.id, "Hot-swapping traffic by reloading Caddy configuration...");
+      const caddy = await writeAndReloadCaddy();
+      appendDeploymentLog(deployment.id, caddy.ok ? "Caddy config hot-reloaded successfully." : `Caddy reload failed: ${caddy.detail}`);
+
+      appendDeploymentLog(deployment.id, "Waiting 300ms for active connections to drain gracefully...");
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+
+      appendDeploymentLog(deployment.id, `Stopping and removing old container ${containerName} if it exists...`);
+      await runCommand("docker", ["rm", "-f", containerName], deployment.id).catch(() => undefined);
+
+      appendDeploymentLog(deployment.id, `Renaming new container ${tempContainerName} to stable name ${containerName}...`);
+      await runCommand("docker", ["rename", tempContainerName, containerName], deployment.id);
+
+      const deployedAt = now();
+      supersedeRunningDeployments(service.id);
+      db.update(deployments).set({ status: "running", finishedAt: deployedAt }).where(eq(deployments.id, deployment.id)).run();
+      db.update(services)
+        .set({ status: "active", lastDeployedAt: deployedAt, updatedAt: deployedAt })
+        .where(eq(services.id, service.id))
+        .run();
+
+      appendDeploymentLog(deployment.id, `Docker image deployment successfully running at ${preferredServiceUrl(service)}.`);
+    } catch (error) {
+      if (error instanceof DeploymentAbortedError) {
+        abortRequests.delete(deployment.id);
+        db.update(deployments).set({ status: "aborted", finishedAt: now() }).where(eq(deployments.id, deployment.id)).run();
+        db.update(services)
+          .set({ status: getLastLiveServiceStatus(service.id), updatedAt: now() })
+          .where(eq(services.id, service.id))
+          .run();
+        appendDeploymentLog(deployment.id, "Docker image deployment aborted.", "stderr", secrets);
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Unknown Docker image deployment error";
+      appendDeploymentLog(deployment.id, `Docker image deployment failed: ${message}`, "stderr", secrets);
       db.update(deployments).set({ status: "failed", finishedAt: now() }).where(eq(deployments.id, deployment.id)).run();
       db.update(services).set({ status: "failed", updatedAt: now() }).where(eq(services.id, service.id)).run();
     }
