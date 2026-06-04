@@ -1,7 +1,8 @@
-import { ArrowDown01Icon, ArrowLeft01Icon, CloudServerIcon, GithubIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowLeft01Icon, CloudServerIcon, GithubIcon, PackageIcon } from "@hugeicons/core-free-icons";
 import { useEffect, useRef, useState } from "react";
 import type { Service } from "../../api";
 import { AppIcon, FrameworkMark } from "../../components/ui/primitives";
+import { isDatabaseService, isDockerImageService } from "../../../shared/service-source";
 
 export function ServicePageToolbar({
   services,
@@ -17,6 +18,8 @@ export function ServicePageToolbar({
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const otherServices = services.filter((service) => service.id !== currentService?.id);
+  const currentIsDatabase = currentService ? isDatabaseService(currentService) : false;
+  const currentIsDockerImage = currentService ? isDockerImageService(currentService) : false;
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +51,7 @@ export function ServicePageToolbar({
             onClick={() => setOpen((current) => !current)}
           >
             <span className="grid h-5 w-5 flex-none place-items-center overflow-hidden">
-              <FrameworkMark framework={currentService?.framework ?? null} size={18} fallback={<AppIcon icon={currentService?.repoUrl === "database" ? CloudServerIcon : GithubIcon} size={16} />} />
+              <FrameworkMark framework={currentService?.framework ?? null} size={18} fallback={<AppIcon icon={currentIsDatabase ? CloudServerIcon : currentIsDockerImage ? PackageIcon : GithubIcon} size={16} />} />
             </span>
             <span className="min-w-0 truncate">{currentService?.name ?? "Select service"}</span>
             <AppIcon icon={ArrowDown01Icon} size={14} className={open ? "rotate-180" : ""} />
@@ -62,7 +65,8 @@ export function ServicePageToolbar({
                   <div className="px-3 py-4 text-sm text-zinc-500">No other services in this project.</div>
                 ) : (
                   otherServices.map((service) => {
-                    const isDatabase = service.repoUrl === "database" || (service.repoFullName?.startsWith("database:") ?? false);
+                    const isDatabase = isDatabaseService(service);
+                    const isDockerImage = isDockerImageService(service);
                     return (
                       <button
                         key={service.id}
@@ -74,7 +78,7 @@ export function ServicePageToolbar({
                         }}
                       >
                         <span className="grid h-6 w-6 flex-none place-items-center overflow-hidden border border-zinc-800 bg-zinc-900 p-1">
-                          <FrameworkMark framework={service.framework} size={16} fallback={<AppIcon icon={isDatabase ? CloudServerIcon : GithubIcon} size={14} />} />
+                          <FrameworkMark framework={service.framework} size={16} fallback={<AppIcon icon={isDatabase ? CloudServerIcon : isDockerImage ? PackageIcon : GithubIcon} size={14} />} />
                         </span>
                         <span className="min-w-0 flex-1 truncate">{service.name}</span>
                         <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">{service.status}</span>
