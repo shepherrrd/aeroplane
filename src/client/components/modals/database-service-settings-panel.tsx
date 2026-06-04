@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { FieldLabel, FormInput } from "../ui/primitives";
+import { Checkbox } from "../ui/checkbox";
 import { generateDatabaseHostname } from "./database-hostname";
 
 export type DatabaseSettingsState = {
@@ -8,15 +9,17 @@ export type DatabaseSettingsState = {
   internalPort: number;
   databasePublicEnabled: boolean;
   databasePublicHostname: string;
+  postgresLogicalReplicationEnabled: boolean;
 };
 
 type DatabaseServiceSettingsPanelProps = {
   settings: DatabaseSettingsState;
   hostPort?: number;
+  supportsLogicalReplication?: boolean;
   onChange: (settings: DatabaseSettingsState) => void;
 };
 
-export function DatabaseServiceSettingsPanel({ settings, hostPort, onChange }: DatabaseServiceSettingsPanelProps) {
+export function DatabaseServiceSettingsPanel({ settings, hostPort, supportsLogicalReplication = false, onChange }: DatabaseServiceSettingsPanelProps) {
   const [rootDomain, setRootDomain] = useState("");
   const generatedHostname = generateDatabaseHostname(settings.name, rootDomain);
 
@@ -73,6 +76,25 @@ export function DatabaseServiceSettingsPanel({ settings, hostPort, onChange }: D
           </div>
         </div>
       </div>
+      {supportsLogicalReplication ? (
+        <div className="xl:col-span-2">
+          <div className="border border-zinc-800 bg-zinc-950/35 p-4">
+            <Checkbox
+              checked={settings.postgresLogicalReplicationEnabled}
+              label="Enable logical replication"
+              onChange={(checked) => onChange({ ...settings, postgresLogicalReplicationEnabled: checked })}
+              className="items-start"
+            >
+              <span className="grid gap-1">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-200">Enable logical replication</span>
+                <span className="text-sm leading-6 text-zinc-500">
+                  Sets <code className="font-mono text-zinc-300">wal_level=logical</code>, <code className="font-mono text-zinc-300">max_replication_slots=10</code>, and <code className="font-mono text-zinc-300">max_wal_senders=10</code> on the next deploy.
+                </span>
+              </span>
+            </Checkbox>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
