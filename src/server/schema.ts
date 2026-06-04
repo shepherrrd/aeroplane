@@ -29,6 +29,7 @@ export const services = sqliteTable("projects", {
   activePort: integer("active_port"),
   databasePublicEnabled: integer("database_public_enabled", { mode: "boolean" }).notNull().default(false),
   databasePublicHostname: text("database_public_hostname"),
+  postgresLogicalReplicationEnabled: integer("postgres_logical_replication_enabled", { mode: "boolean" }).notNull().default(false),
   status: text("status").notNull(),
   lastDeployedAt: text("last_deployed_at"),
   createdAt: text("created_at").notNull(),
