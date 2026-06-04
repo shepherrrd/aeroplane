@@ -472,7 +472,7 @@ async function publicService(service: Service) {
     .orderBy(desc(deployments.createdAt))
     .limit(1)
     .get();
-  const shouldProbe = service.status === "active" || service.status === "building";
+  const shouldProbe = service.status === "active" || service.status === "queued" || service.status === "building";
   const reachable = shouldProbe ? await checkPortReachable(appPort) : false;
   const latestDeploymentIsActive = latestDeployment?.status === "queued" || latestDeployment?.status === "building";
   const liveStatus = service.status === "active" && !reachable && !latestDeploymentIsActive ? "crashed" : service.status;
@@ -527,7 +527,7 @@ async function publicService(service: Service) {
 async function summarizeProject(project: ProjectGroup, projectServices: Service[]) {
   const hydratedServices = await Promise.all(projectServices.map((service) => publicService(service)));
   const statuses = hydratedServices.map((service) => service.status);
-  const status = statuses.includes("building")
+  const status = statuses.includes("queued") || statuses.includes("building")
     ? "building"
     : statuses.includes("failed") || statuses.includes("crashed")
       ? "degraded"
