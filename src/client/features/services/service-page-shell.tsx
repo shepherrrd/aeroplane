@@ -4,6 +4,7 @@ import {
   Cancel01Icon,
   Delete02Icon,
   DatabaseIcon,
+  FolderOpenIcon,
   GithubIcon,
   Globe02Icon,
   PackageIcon,
@@ -35,6 +36,7 @@ import {
 import { githubBranchesCache, githubDirectoriesCache, githubReposCache } from "../../lib/github-cache";
 import { DirectoryPickerModal } from "../../components/modals/directory-picker";
 import { SourcePickerModal } from "../../components/modals/source-picker";
+import { TransferServiceModal } from "../../components/modals/transfer-service-modal";
 import { DatabaseServiceSettingsPanel } from "../../components/modals/database-service-settings-panel";
 import { DatabaseBackupsPanel } from "../../components/modals/database-backups-panel";
 import { DatabaseBrowserPanel } from "../../components/modals/database-browser-panel";
@@ -79,7 +81,8 @@ export function ServicePageShell({
   onProjectRefresh,
   onDeleted,
   pageServices = [],
-  onServiceSelect
+  onServiceSelect,
+  onTransferred
 }: {
   selectedTab: ServiceTab;
   serviceId: string;
@@ -89,6 +92,7 @@ export function ServicePageShell({
   onDeleted: () => void;
   pageServices?: Service[];
   onServiceSelect?: (serviceSlug: string) => void;
+  onTransferred: (projectSlug: string, serviceSlug: string) => void;
 }) {
   const [overview, setOverview] = useState<null | ServiceOverview>(null);
   const [activeDeploymentId, setActiveDeploymentId] = useState<null | string>(null);
@@ -112,6 +116,7 @@ export function ServicePageShell({
   const [settingsBranches, setSettingsBranches] = useState<string[]>([]);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [sourceQuery, setSourceQuery] = useState("");
   const [sourceRepos, setSourceRepos] = useState<GitHubRepo[]>([]);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -401,6 +406,22 @@ export function ServicePageShell({
     });
   }
 
+  async function transferService(targetProjectId: string) {
+    setBusy("transfer");
+    setError("");
+    try {
+      const result = await api.transferService(serviceId, { targetProjectId });
+      setTransferOpen(false);
+      onTransferred(result.project.slug, result.service.slug);
+    } catch (issue) {
+      const message = issue instanceof Error ? issue.message : "Could not transfer service";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function deleteService() {
     if (!overview?.service || !window.confirm(`Delete service "${overview.service.name}"?`)) return;
     setBusy("delete");
@@ -448,6 +469,7 @@ export function ServicePageShell({
     activeDeployment && deploymentIsPending(activeDeployment.status)
       ? formatBuildDuration(activeDeployment.startedAt ?? activeDeployment.createdAt, activeDeployment.finishedAt, nowMs)
       : null;
+  const transferDisabled = Boolean(busy) || deploymentIsPending(service?.status ?? "") || deployments.some((deployment) => deploymentIsPending(deployment.status));
   const shellClass = "relative isolate h-dvh overflow-hidden bg-zinc-950 text-zinc-100";
   const viewportClass = "relative z-10 mx-auto flex h-full w-full max-w-7xl flex-col px-5 py-10 sm:px-6 lg:px-10";
   const panelClass = "flex min-h-0 w-full flex-1 flex-col";
@@ -720,6 +742,10 @@ export function ServicePageShell({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
+                      <button type="button" className={shellButton("secondary")} onClick={() => setTransferOpen(true)} disabled={transferDisabled}>
+                        <AppIcon icon={FolderOpenIcon} size={16} />
+                        Move service
+                      </button>
                       <button type="button" className={shellButton("danger")} onClick={() => void deleteService()} disabled={busy === "delete"}>
                         <AppIcon icon={Delete02Icon} size={16} />
                         Delete service
@@ -772,6 +798,14 @@ export function ServicePageShell({
         onClose={() => setDirectoryPickerOpen(false)}
         onToggle={toggleSettingsDirectory}
         onSelect={(path) => setSettings((current) => ({ ...current, rootDir: path }))}
+      />
+      <TransferServiceModal
+        open={transferOpen}
+        currentProjectId={service?.projectId ?? ""}
+        serviceName={service?.name ?? "Service"}
+        busy={busy === "transfer"}
+        onClose={() => setTransferOpen(false)}
+        onTransfer={transferService}
       />
     </>
   );
