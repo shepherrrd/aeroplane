@@ -16,6 +16,7 @@ function getServiceProperty(service: Service, prop: string): string | null {
   if (p === "hostport") return String(service.hostPort);
   if (p === "activeport") return String(service.activePort ?? service.hostPort);
   if (p === "internalport") return String(service.internalPort);
+  if (p === "runtimemode") return service.runtimeMode;
   if (p === "name") return service.name;
   if (p === "slug") return service.slug;
   if (p === "status") return service.status;
