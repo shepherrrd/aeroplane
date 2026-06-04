@@ -12,6 +12,7 @@ export type Service = {
   slug: string;
   repoFullName: null | string;
   repoUrl: string;
+  dockerImage: null | string;
   branch: string;
   rootDir: null | string;
   hasGithubToken: boolean;
@@ -23,6 +24,7 @@ export type Service = {
   hostPort: number;
   databasePublicEnabled: boolean;
   databasePublicHostname: null | string;
+  postgresLogicalReplicationEnabled: boolean;
   status: string;
   reachable: boolean;
   localUrl: string;
@@ -657,7 +659,22 @@ export const api = {
         id: string;
         name: string;
         description: string;
-        services: Array<{ id: string; name: string }>;
+        services: Array<{
+          id: string;
+          name: string;
+          kind: "git" | "database" | "docker-image" | "unsupported";
+          sourceLabel: string;
+          unsupportedReason: null | string;
+          dbType: null | string;
+          image: null | string;
+          sourcesByEnvironment: Record<string, {
+            kind: "git" | "database" | "docker-image" | "unsupported";
+            sourceLabel: string;
+            unsupportedReason: null | string;
+            dbType: null | string;
+            image: null | string;
+          }>;
+        }>;
         environments: Array<{ id: string; name: string }>;
       };
     }>("/api/integrations/railway/project-details", {
