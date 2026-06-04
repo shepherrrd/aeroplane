@@ -10,6 +10,7 @@ import { domains, services } from "./schema.js";
 import { ensureDefaultDomainsForExistingServices } from "./service-domains.js";
 import { configuredControlPlaneHostname } from "./system-settings.js";
 import { isDatabaseService } from "../shared/service-source.js";
+import { isWorkerService } from "../shared/service-runtime.js";
 
 function shellWords(command: string) {
   return command.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
@@ -73,6 +74,7 @@ export function renderCaddyfile() {
       hostPort: services.hostPort,
       activePort: services.activePort,
       staticOutput: services.staticOutput,
+      runtimeMode: services.runtimeMode,
       repoUrl: services.repoUrl,
       repoFullName: services.repoFullName
     })
@@ -109,6 +111,7 @@ export function renderCaddyfile() {
   for (const row of domainMappings) {
     const isDatabase = isDatabaseService(row);
     if (isDatabase) continue;
+    if (isWorkerService(row)) continue;
     if (controlPlaneHostname && row.hostname === controlPlaneHostname) continue;
 
     if (row.staticOutput) {
