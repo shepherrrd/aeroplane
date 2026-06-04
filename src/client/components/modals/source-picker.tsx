@@ -1,5 +1,7 @@
 import { GithubIcon, Search01Icon } from "@hugeicons/core-free-icons";
+import { useMemo } from "react";
 import type { GitHubRepo } from "../../api";
+import { compareReposByLastPush } from "../../lib/github-repos";
 import { ModalShell } from "./modal-shell";
 import { AppIcon, FormInput, shellButton } from "../ui/primitives";
 
@@ -15,6 +17,8 @@ type SourcePickerModalProps = {
 };
 
 export function SourcePickerModal({ open, query, repos, loading, error, onClose, onQueryChange, onSelect }: SourcePickerModalProps) {
+  const sortedRepos = useMemo(() => [...repos].sort(compareReposByLastPush), [repos]);
+
   return (
     <ModalShell open={open} onClose={onClose} icon={GithubIcon} title="Change source" meta="Choose a different GitHub repository." width="max-w-3xl">
       <div className="space-y-4">
@@ -29,7 +33,7 @@ export function SourcePickerModal({ open, query, repos, loading, error, onClose,
           {repos.length === 0 ? (
             <div className="px-4 py-5 text-sm text-zinc-400">{loading ? "Loading repositories..." : "No repositories found."}</div>
           ) : (
-            repos.map((repo) => (
+            sortedRepos.map((repo) => (
               <button
                 key={repo.id}
                 type="button"
