@@ -4,6 +4,7 @@ export type ServiceFormPayload = {
   repoUrl?: string;
   branch: string;
   rootDir?: string;
+  dockerImage?: string;
   internalPort: number;
   installCommand?: string;
   buildCommand?: string;
@@ -11,6 +12,7 @@ export type ServiceFormPayload = {
   staticOutput?: string;
   databasePublicEnabled?: boolean;
   databasePublicHostname?: string;
+  postgresLogicalReplicationEnabled?: boolean;
   env?: Array<{
     key: string;
     value: string;
