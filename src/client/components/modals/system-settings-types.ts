@@ -1,4 +1,4 @@
-export const systemSettingsTabValues = ["root-domain", "github", "storage", "migration", "maintenance", "deployments", "updates"] as const;
+export const systemSettingsTabValues = ["root-domain", "dns", "github", "storage", "migration", "maintenance", "deployments", "updates"] as const;
 
 export type SystemSettingsTab = (typeof systemSettingsTabValues)[number];
 
