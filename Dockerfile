@@ -12,7 +12,7 @@ RUN npm prune --omit=dev
 FROM node:22-bookworm-slim AS runtime
 
 ARG AEROPLANE_COMMIT_SHA=unknown
-ARG AEROPLANE_IMAGE_SOURCE=https://github.com/akinloluwami/aeroplane
+ARG AEROPLANE_IMAGE_SOURCE=https://github.com/xt42io/aeroplane
 
 LABEL org.opencontainers.image.source=$AEROPLANE_IMAGE_SOURCE
 LABEL org.opencontainers.image.revision=$AEROPLANE_COMMIT_SHA
