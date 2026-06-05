@@ -60,6 +60,8 @@ type SpaceshipRecord = {
   name: string;
   address?: string;
   ttl?: number;
+  group?: unknown;
+  [key: string]: unknown;
 };
 
 type SpaceshipRecordsResponse = {
@@ -398,32 +400,53 @@ async function resolveSpaceshipDomain(settings: SpaceshipDnsSettings, hostname: 
   throw lastError instanceof Error ? lastError : new Error(`Spaceship domain for ${hostname} was not found.`);
 }
 
-function spaceshipRecordMatches(record: SpaceshipRecord, hostName: string) {
-  return record.type.toUpperCase() === "A" && record.name.toLowerCase() === hostName.toLowerCase();
+function spaceshipRecordNameMatches(record: SpaceshipRecord, hostName: string) {
+  return record.name.toLowerCase() === hostName.toLowerCase();
+}
+
+function spaceshipARecordMatches(record: SpaceshipRecord, hostName: string) {
+  return record.type.toUpperCase() === "A" && spaceshipRecordNameMatches(record, hostName);
+}
+
+function spaceshipRecordConflictsWithA(record: SpaceshipRecord, hostName: string, hasSingleCorrectARecord: boolean) {
+  if (!spaceshipRecordNameMatches(record, hostName)) return false;
+  const type = record.type.toUpperCase();
+  if (type === "CNAME" || type === "ALIAS") return true;
+  if (type === "A") return !hasSingleCorrectARecord;
+  return false;
+}
+
+function spaceshipDeleteRecordPayload(record: SpaceshipRecord) {
+  const { ttl: _ttl, group: _group, ...payload } = record;
+  return payload;
+}
+
+async function deleteSpaceshipRecords(settings: SpaceshipDnsSettings, domain: string, records: SpaceshipRecord[]) {
+  for (let index = 0; index < records.length; index += 500) {
+    const batch = records.slice(index, index + 500).map(spaceshipDeleteRecordPayload);
+    await spaceshipRequest<null>(settings, `/dns/records/${domain}`, {
+      method: "DELETE",
+      body: JSON.stringify(batch)
+    });
+  }
 }
 
 async function upsertSpaceshipARecord(settings: SpaceshipDnsSettings, hostname: string, targetIp: string): Promise<DnsRecordApplyResult> {
   const resolved = await resolveSpaceshipDomain(settings, hostname);
   const hostName = hostForDomain(hostname, resolved.domain);
-  const existingRecords = resolved.records.filter((record) => spaceshipRecordMatches(record, hostName));
-  const alreadyCorrect = existingRecords.length === 1 && existingRecords[0]?.address === targetIp;
+  const sameHostRecords = resolved.records.filter((record) => spaceshipRecordNameMatches(record, hostName));
+  const existingARecords = resolved.records.filter((record) => spaceshipARecordMatches(record, hostName));
+  const hasSingleCorrectARecord = existingARecords.length === 1 && existingARecords[0]?.address === targetIp;
+  const conflictingRecords = resolved.records.filter((record) => spaceshipRecordConflictsWithA(record, hostName, hasSingleCorrectARecord));
 
-  if (existingRecords.length > 0 && !alreadyCorrect) {
-    const deletableRecords = existingRecords
-      .filter((record) => record.address)
-      .map((record) => ({ type: "A", name: record.name, address: record.address }));
-    if (deletableRecords.length > 0) {
-      await spaceshipRequest<null>(settings, `/dns/records/${resolved.domain}`, {
-        method: "DELETE",
-        body: JSON.stringify(deletableRecords)
-      });
-    }
+  if (conflictingRecords.length > 0) {
+    await deleteSpaceshipRecords(settings, resolved.domain, conflictingRecords);
   }
 
   await spaceshipRequest<null>(settings, `/dns/records/${resolved.domain}`, {
     method: "PUT",
     body: JSON.stringify({
-      force: true,
+      force: false,
       items: [
         {
           type: "A",
@@ -438,7 +461,7 @@ async function upsertSpaceshipARecord(settings: SpaceshipDnsSettings, hostname: 
   return {
     provider: "spaceship",
     providerName: providerNames.spaceship,
-    action: existingRecords.length > 0 ? "updated" : "created",
+    action: sameHostRecords.length > 0 ? "updated" : "created",
     hostname,
     recordType: "A",
     host: hostName,
