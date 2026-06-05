@@ -423,7 +423,7 @@ async function runImageUpdate() {
 
   const command = configuredImageUpdateCommand();
   if (!command) {
-    throw new Error(`Image self-update is not configured. Update it from the VPS with: ${imageManualUpdateCommand()}`);
+    throw new Error(`Image self-update is not configured. Update it from the server with: ${imageManualUpdateCommand()}`);
   }
   if (hasLegacyImageUpdateCommand(config.imageUpdateCmd.trim())) {
     appendLog("Detected legacy updater mount path and normalized it for this run.");
