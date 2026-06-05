@@ -143,7 +143,7 @@ export function ControlPlaneDomainSettingsPanel({ open }: { open: boolean }) {
               ) : null}
             </div>
             <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-              Point a hostname at this VPS and Aeroplane will serve the dashboard through Caddy with HTTPS.
+              Point a hostname at this server and Aeroplane will serve the dashboard through Caddy with HTTPS.
             </p>
           </div>
         </div>
