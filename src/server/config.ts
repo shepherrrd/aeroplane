@@ -43,7 +43,7 @@ if (process.env.AEROPLANE_ENV_PATH) {
   applyEnvFile(resolve(process.env.AEROPLANE_ENV_PATH), { override: true });
 }
 
-const defaultAeroplaneImage = process.env.AEROPLANE_IMAGE ?? "ghcr.io/akinloluwami/aeroplane:latest";
+const defaultAeroplaneImage = process.env.AEROPLANE_IMAGE ?? "ghcr.io/xt42io/aeroplane:latest";
 const aeroplaneInstallDir = process.env.AEROPLANE_INSTALL_DIR ?? "/opt/aeroplane";
 const defaultImageUpdateCmd = `docker rm -f aeroplane-self-updater >/dev/null 2>&1 || true; docker run -d --name aeroplane-self-updater -v /var/run/docker.sock:/var/run/docker.sock -v ${aeroplaneInstallDir}:${aeroplaneInstallDir} -w ${aeroplaneInstallDir} ${defaultAeroplaneImage} sh -lc 'docker compose pull aeroplane && docker compose up -d --no-deps aeroplane'`;
 
@@ -65,7 +65,7 @@ export const config = {
   secretKey: process.env.AEROPLANE_SECRET_KEY ?? "",
   caddyConfigPath: resolve(process.env.CADDY_CONFIG_PATH ?? "data/Caddyfile"),
   caddyReloadCmd: process.env.CADDY_RELOAD_CMD ?? "caddy reload --config ./data/Caddyfile",
-  updateRepoUrl: process.env.AEROPLANE_UPDATE_REPO_URL ?? "https://github.com/akinloluwami/aeroplane.git",
+  updateRepoUrl: process.env.AEROPLANE_UPDATE_REPO_URL ?? "https://github.com/xt42io/aeroplane.git",
   updateRepoBranch: process.env.AEROPLANE_UPDATE_BRANCH ?? "main",
   updateRestartCmd: process.env.AEROPLANE_UPDATE_RESTART_CMD ?? "",
   imageCommitSha: process.env.AEROPLANE_COMMIT_SHA ?? "",
