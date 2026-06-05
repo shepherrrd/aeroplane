@@ -9,7 +9,7 @@
     "dev:client": "vite --host 0.0.0.0",
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "NODE_ENV=production node dist/server/index.js",
-    "publish:image": "docker buildx build --platform linux/amd64,linux/arm64 --build-arg AEROPLANE_COMMIT_SHA=$(git rev-parse HEAD) -t ghcr.io/akinloluwami/aeroplane:latest --push .",
+    "publish:image": "docker buildx build --platform linux/amd64,linux/arm64 --build-arg AEROPLANE_COMMIT_SHA=$(git rev-parse HEAD) -t ghcr.io/xt42io/aeroplane:latest --push .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "keywords": [
