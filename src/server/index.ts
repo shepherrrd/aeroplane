@@ -756,8 +756,7 @@ function syncDatabaseUrlEnvVar(serviceId: string) {
         dbType,
         envMap,
         host: service.databasePublicHostname,
-        port: service.hostPort,
-        sslMode: isPostgresFamilyDatabase(dbType) ? "require" : undefined
+        port: service.hostPort
       }).value
     : "";
   const publicKey = publicDatabaseUrlKey(dbType);
