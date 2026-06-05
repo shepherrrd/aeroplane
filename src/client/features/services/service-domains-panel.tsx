@@ -1,8 +1,9 @@
 import { Add01Icon, Alert02Icon, CheckmarkBadge01Icon, CopyCheckIcon, CopyIcon, Globe02Icon, Refresh03Icon } from "@hugeicons/core-free-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MouseEvent } from "react";
-import { api, type Domain } from "../../api";
+import { api, type DnsProviderId, type DnsProviderStatus, type Domain } from "../../api";
 import { AppIcon, FormInput, SectionTitle, StatusPill, shellButton } from "../../components/ui/primitives";
+import { DomainDnsProviderActions } from "./domain-dns-provider-actions";
 
 export function ServiceDomainsPanel({
   serviceId,
@@ -26,6 +27,27 @@ export function ServiceDomainsPanel({
   const [editingHostname, setEditingHostname] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [refreshingDns, setRefreshingDns] = useState(false);
+  const [connectedDnsProviders, setConnectedDnsProviders] = useState<DnsProviderStatus[]>([]);
+  const [dnsProviderBusyId, setDnsProviderBusyId] = useState<DnsProviderId | null>(null);
+  const [dnsActionNotice, setDnsActionNotice] = useState<{ domainId: string; tone: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadDnsProviders() {
+      try {
+        const response = await api.dnsSettings();
+        if (!ignore) setConnectedDnsProviders(response.dns.providers.filter((provider) => provider.connected));
+      } catch (error) {
+        console.error("Failed to load connected DNS providers:", error);
+      }
+    }
+
+    void loadDnsProviders();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   async function copyIp(event: MouseEvent, domainId: string, targetIp: string) {
     event.stopPropagation();
@@ -35,6 +57,31 @@ export function ServiceDomainsPanel({
       setTimeout(() => setCopiedIpDomainId(null), 1500);
     } catch (issue) {
       console.error("Failed to copy IP:", issue);
+    }
+  }
+
+  async function applyDnsRecord(domain: Domain, providerId: DnsProviderId) {
+    const provider = connectedDnsProviders.find((item) => item.id === providerId);
+    setDnsProviderBusyId(providerId);
+    setDnsActionNotice(null);
+
+    try {
+      const response = await api.applyDnsRecord(serviceId, domain.id, providerId);
+      const actionLabel = response.result.action === "created" ? "Added" : "Updated";
+      setDnsActionNotice({
+        domainId: domain.id,
+        tone: "success",
+        text: `${actionLabel} A record in ${provider?.name ?? response.result.providerName}.`
+      });
+      await loadOverview();
+    } catch (error) {
+      setDnsActionNotice({
+        domainId: domain.id,
+        tone: "error",
+        text: error instanceof Error ? error.message : `Could not update ${provider?.name ?? "DNS provider"}.`
+      });
+    } finally {
+      setDnsProviderBusyId(null);
     }
   }
 
@@ -252,11 +299,29 @@ export function ServiceDomainsPanel({
                     </div>
 
                     <div className="mt-2 flex flex-col gap-4 border-t border-zinc-800/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                      <span className="max-w-sm font-mono text-[10px] leading-relaxed text-zinc-500">
-                        {domain.status === "active"
-                          ? "Perfect. Caddy reverse-proxy SSL/TLS certificates will automatically renew natively."
-                          : "DNS propagation can take a few minutes. Click verify to check again."}
-                      </span>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <span className="block max-w-sm font-mono text-[10px] leading-relaxed text-zinc-500">
+                          {domain.status === "active"
+                            ? "Perfect. Caddy reverse-proxy SSL/TLS certificates will automatically renew natively."
+                            : "DNS propagation can take a few minutes. Click verify to check again."}
+                        </span>
+                        <DomainDnsProviderActions
+                          providers={connectedDnsProviders}
+                          busyProviderId={dnsProviderBusyId}
+                          onApply={(providerId) => void applyDnsRecord(domain, providerId)}
+                        />
+                        {dnsActionNotice?.domainId === domain.id ? (
+                          <div
+                            className={`w-fit border px-2.5 py-1.5 font-mono text-[10px] ${
+                              dnsActionNotice.tone === "success"
+                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                : "border-rose-500/35 bg-rose-950/25 text-rose-200"
+                            }`}
+                          >
+                            {dnsActionNotice.text}
+                          </div>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 border border-zinc-700 bg-zinc-900 px-3.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
