@@ -13,6 +13,11 @@ type MongoCollectionInfo = {
   count: number;
 };
 
+type MongoTablesResult = {
+  databases: string[];
+  collections: MongoCollectionInfo[];
+};
+
 type MongoRowsResult = {
   columns: Array<{ name: string; type: string }>;
   rows: RowData[];
@@ -167,25 +172,28 @@ function mongoRowsScript(database: string, collection: string, limit: number, of
 }
 
 export async function getMongoTables(ctx: DatabaseContext) {
-  const collections = await runMongoJson<MongoCollectionInfo[]>(ctx, `
+  const result = await runMongoJson<MongoTablesResult>(ctx, `
     const systemDatabases = new Set(["admin", "config", "local"]);
-    const results = [];
+    const databases = [];
+    const collections = [];
     for (const item of db.adminCommand({ listDatabases: 1 }).databases) {
       if (systemDatabases.has(item.name)) continue;
+      databases.push(item.name);
       const database = db.getSiblingDB(item.name);
       for (const info of database.getCollectionInfos({ type: "collection" })) {
-        results.push({
+        collections.push({
           database: item.name,
           collection: info.name,
           count: database.getCollection(info.name).estimatedDocumentCount()
         });
       }
     }
-    results.sort((left, right) => (left.database + "." + left.collection).localeCompare(right.database + "." + right.collection));
-    print(JSON.stringify(results));
+    databases.sort((left, right) => left.localeCompare(right));
+    collections.sort((left, right) => (left.database + "." + left.collection).localeCompare(right.database + "." + right.collection));
+    print(JSON.stringify({ databases, collections }));
   `);
 
-  const tables: DatabaseTable[] = collections.map((item) => ({
+  const tables: DatabaseTable[] = result.collections.map((item) => ({
     id: mongoTableId(item.database, item.collection),
     schema: item.database,
     name: item.collection,
@@ -196,6 +204,7 @@ export async function getMongoTables(ctx: DatabaseContext) {
     engine: ctx.dbType,
     supported: true,
     editable: true,
+    schemas: result.databases.map((name) => ({ name })),
     tables
   };
 }
