@@ -1,6 +1,6 @@
 import { Add01Icon, DatabaseImportIcon, MoreVerticalIcon, Refresh03Icon } from "@hugeicons/core-free-icons";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, type DatabaseColumn, type DatabaseDataImport, type DatabaseRow, type DatabaseRowFilter, type DatabaseRowsResponse, type DatabaseRuntimeState, type DatabaseTable } from "../../api";
+import { api, type DatabaseColumn, type DatabaseDataImport, type DatabaseRow, type DatabaseRowFilter, type DatabaseRowsResponse, type DatabaseRuntimeState, type DatabaseSchema, type DatabaseTable } from "../../api";
 import { Dropdown } from "../ui/dropdown";
 import { AppIcon, shellButton } from "../ui/primitives";
 import { DatabaseInsertSheet, validRedisType } from "./database-insert-sheet";
@@ -45,8 +45,16 @@ function browserNouns(engine: string) {
   return { list: "Tables", group: "Schema", empty: "No tables found.", scopedEmpty: "No tables in this schema.", record: "row" };
 }
 
+function databaseSchemaNames(schemas: DatabaseSchema[], tables: DatabaseTable[]) {
+  return Array.from(new Set([
+    ...schemas.map((schema) => schema.name),
+    ...tables.map((table) => table.schema)
+  ])).filter(Boolean);
+}
+
 export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
   const [tables, setTables] = useState<DatabaseTable[]>([]);
+  const [schemas, setSchemas] = useState<DatabaseSchema[]>([]);
   const [selectedTable, setSelectedTable] = useState("");
   const [rowsResult, setRowsResult] = useState<DatabaseRowsResponse | null>(null);
   const [supported, setSupported] = useState(true);
@@ -92,19 +100,18 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
     return tables.find((table) => table.id === selectedTable) ?? null;
   }, [selectedTable, tables]);
   const schemaOptions = useMemo(() => {
-    const names = Array.from(new Set(tables.map((table) => table.schema))).filter(Boolean);
-    return names.map((schema) => ({ value: schema, label: schema }));
-  }, [tables]);
+    return databaseSchemaNames(schemas, tables).map((schema) => ({ value: schema, label: schema }));
+  }, [schemas, tables]);
   const visibleTables = useMemo(() => {
     if (!selectedSchema) return tables;
     return tables.filter((table) => table.schema === selectedSchema);
   }, [selectedSchema, tables]);
 
-  function preferredSchema(nextTables: DatabaseTable[], nextEngine: string) {
-    const schemas = Array.from(new Set(nextTables.map((table) => table.schema))).filter(Boolean);
-    if (schemas.includes(selectedSchema)) return selectedSchema;
-    if ((isPostgresFamilyDatabase(nextEngine) || nextEngine === "mysql" || nextEngine === "clickhouse") && schemas.includes("public")) return "public";
-    return schemas[0] ?? "";
+  function preferredSchema(nextSchemas: DatabaseSchema[], nextTables: DatabaseTable[], nextEngine: string) {
+    const names = databaseSchemaNames(nextSchemas, nextTables);
+    if (names.includes(selectedSchema)) return selectedSchema;
+    if ((isPostgresFamilyDatabase(nextEngine) || nextEngine === "mysql" || nextEngine === "clickhouse") && names.includes("public")) return "public";
+    return names[0] ?? "";
   }
 
   async function loadTables() {
@@ -117,14 +124,15 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
       setEngine(result.engine);
       setRuntimeState(result.runtimeState ?? "ready");
       setTables(result.tables);
+      setSchemas(result.schemas ?? []);
       setMessage(result.message ?? "");
-      const nextSchema = preferredSchema(result.tables, result.engine);
+      const nextSchema = preferredSchema(result.schemas ?? [], result.tables, result.engine);
       const nextSelectedTable = result.tables.find((table) => table.id === selectedTable && table.schema === nextSchema)?.id
         ?? result.tables.find((table) => table.schema === nextSchema)?.id
         ?? "";
       setSelectedSchema(nextSchema);
       setSelectedTable(nextSelectedTable);
-      if (result.tables.length === 0 || (result.runtimeState && result.runtimeState !== "ready")) setRowsResult(null);
+      if (!nextSelectedTable || (result.runtimeState && result.runtimeState !== "ready")) setRowsResult(null);
     } catch (issue) {
       setError(issue instanceof Error ? issue.message : "Could not load database tables");
     } finally {
@@ -221,6 +229,7 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
   useEffect(() => {
     setSelectedTable("");
     setSelectedSchema("");
+    setSchemas([]);
     setEngine("");
     setRuntimeState("ready");
     setRowsResult(null);
@@ -433,8 +442,12 @@ export function DatabaseBrowserPanel({ serviceId }: { serviceId: string }) {
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {tables.length === 0 ? (
-            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{busy === "tables" ? "Loading..." : hasRuntimeNotice ? "Database not ready." : nouns.empty}</div>
+          {busy === "tables" ? (
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">Loading...</div>
+          ) : hasRuntimeNotice ? (
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">Database not ready.</div>
+          ) : schemaOptions.length === 0 ? (
+            <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{nouns.empty}</div>
           ) : visibleTables.length === 0 ? (
             <div className="flex h-full items-center justify-center px-4 py-5 text-center text-sm text-zinc-500">{nouns.scopedEmpty}</div>
           ) : visibleTables.map((table) => (
