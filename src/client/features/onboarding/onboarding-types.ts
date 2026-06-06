@@ -1,3 +1,5 @@
+import type { BackupScheduleEnabled } from "../../api";
+
 export type OnboardingForm = {
   ownerName: string;
   ownerEmail: string;
@@ -26,7 +28,7 @@ export type OnboardingForm = {
   r2AccessKeyId: string;
   r2SecretAccessKey: string;
   r2CreateBucket: boolean;
-  databaseBackupsAutomaticEnabled: boolean;
+  databaseBackupScheduleDefaults: BackupScheduleEnabled;
 };
 
 export const defaultOnboardingForm: OnboardingForm = {
@@ -57,5 +59,9 @@ export const defaultOnboardingForm: OnboardingForm = {
   r2AccessKeyId: "",
   r2SecretAccessKey: "",
   r2CreateBucket: true,
-  databaseBackupsAutomaticEnabled: false
+  databaseBackupScheduleDefaults: {
+    daily: false,
+    weekly: false,
+    monthly: false
+  }
 };
