@@ -5,7 +5,7 @@ import {
   Refresh03Icon,
   Settings01Icon
 } from "@hugeicons/core-free-icons";
-import type { BackupStorageTarget, DatabaseBackupSettings } from "../../../api";
+import type { BackupScheduleEnabled, BackupScheduleTrigger, BackupStorageTarget, DatabaseBackupSettings } from "../../../api";
 import { AppIcon, FieldLabel, shellButton } from "../../ui/primitives";
 import { ModalShell } from "../modal-shell";
 import { retentionLabel, triggerLabel } from "./backup-format";
@@ -15,12 +15,12 @@ type BackupSettingsModalProps = {
   activeSettings: DatabaseBackupSettings;
   r2Connected: boolean;
   draftStorage: BackupStorageTarget;
-  draftAutomatic: boolean;
+  draftScheduleEnabled: BackupScheduleEnabled;
   saving: boolean;
   onClose: () => void;
   onSave: () => void;
   onDraftStorageChange: (storage: BackupStorageTarget) => void;
-  onDraftAutomaticChange: (automatic: boolean) => void;
+  onDraftScheduleChange: (trigger: BackupScheduleTrigger, enabled: boolean) => void;
 };
 
 export function BackupSettingsModal({
@@ -28,12 +28,12 @@ export function BackupSettingsModal({
   activeSettings,
   r2Connected,
   draftStorage,
-  draftAutomatic,
+  draftScheduleEnabled,
   saving,
   onClose,
   onSave,
   onDraftStorageChange,
-  onDraftAutomaticChange
+  onDraftScheduleChange
 }: BackupSettingsModalProps) {
   return (
     <ModalShell
@@ -79,31 +79,40 @@ export function BackupSettingsModal({
         </div>
 
         <div className="border border-zinc-800 bg-zinc-950/40 p-4">
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-4 text-left"
-            onClick={() => onDraftAutomaticChange(!draftAutomatic)}
-          >
-            <span>
-              <span className="block text-sm font-medium text-zinc-100">Automatic backups</span>
-              <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                Daily, weekly, and monthly backups run in the background using the selected destination.
-              </span>
+          <div>
+            <span className="block text-sm font-medium text-zinc-100">Automatic schedules</span>
+            <span className="mt-1 block text-xs leading-5 text-zinc-500">
+              Selected schedules run in the background using the chosen destination.
             </span>
-            <span className={`h-6 w-11 border p-0.5 transition ${draftAutomatic ? "border-[#4FB8B2]/50 bg-[#4FB8B2]/20" : "border-zinc-700 bg-zinc-900"}`}>
-              <span className={`block h-4 w-4 bg-current transition ${draftAutomatic ? "translate-x-5 text-[#7fe3dd]" : "translate-x-0 text-zinc-500"}`} />
-            </span>
-          </button>
+          </div>
 
           <div className="mt-4 grid gap-2">
-            {activeSettings.schedules.map((schedule) => (
-              <div key={schedule.trigger} className="flex items-center justify-between gap-3 border border-zinc-800 bg-zinc-900/40 px-3 py-2">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300">{triggerLabel(schedule.trigger)}</span>
-                <span className="text-xs text-zinc-500">
-                  every {schedule.intervalHours === 24 ? "24 hours" : schedule.intervalHours === 168 ? "7 days" : "30 days"}, kept for {retentionLabel(schedule.retentionDays)}
-                </span>
-              </div>
-            ))}
+            {activeSettings.schedules.map((schedule) => {
+              const enabled = draftScheduleEnabled[schedule.trigger];
+              return (
+                <button
+                  key={schedule.trigger}
+                  type="button"
+                  className={`flex items-center justify-between gap-3 border px-3 py-2 text-left transition ${
+                    enabled ? "border-[#4FB8B2]/40 bg-[#4FB8B2]/10" : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700"
+                  }`}
+                  onClick={() => onDraftScheduleChange(schedule.trigger, !enabled)}
+                >
+                  <span>
+                    <span className="block font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-300">{triggerLabel(schedule.trigger)}</span>
+                    <span className="mt-1 block text-xs text-zinc-500">
+                      every {schedule.intervalHours === 24 ? "24 hours" : schedule.intervalHours === 168 ? "7 days" : "30 days"}, kept for {retentionLabel(schedule.retentionDays)}
+                    </span>
+                  </span>
+                  <span className={`h-6 w-11 shrink-0 border p-0.5 transition ${enabled ? "border-[#4FB8B2]/50 bg-[#4FB8B2]/20" : "border-zinc-700 bg-zinc-900"}`}>
+                    <span className={`block h-4 w-4 bg-current transition ${enabled ? "translate-x-5 text-[#7fe3dd]" : "translate-x-0 text-zinc-500"}`} />
+                  </span>
+                  <span className="sr-only">
+                    {enabled ? "Disable" : "Enable"} {triggerLabel(schedule.trigger).toLowerCase()} backups
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
