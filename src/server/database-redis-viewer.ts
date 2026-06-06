@@ -198,6 +198,7 @@ export async function getRedisTables(ctx: DatabaseContext, database = 0) {
     engine: ctx.dbType,
     supported: true,
     editable: false,
+    schemas: Array.from(new Set(tables.map((table) => table.schema).filter(Boolean))).map((name) => ({ name })),
     tables
   };
 }
