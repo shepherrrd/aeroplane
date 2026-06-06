@@ -115,7 +115,10 @@ CREATE TABLE IF NOT EXISTS database_backups (
 CREATE TABLE IF NOT EXISTS database_backup_settings (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   storage TEXT NOT NULL,
-  automatic_enabled INTEGER NOT NULL DEFAULT 1,
+  automatic_enabled INTEGER NOT NULL DEFAULT 0,
+  daily_enabled INTEGER NOT NULL DEFAULT 0,
+  weekly_enabled INTEGER NOT NULL DEFAULT 0,
+  monthly_enabled INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -216,6 +219,21 @@ if (!hasColumn("projects", "postgres_logical_replication_enabled")) {
 
 if (!hasColumn("database_backups", "trigger")) {
   sqlite.exec("ALTER TABLE database_backups ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");
+}
+
+if (!hasColumn("database_backup_settings", "daily_enabled")) {
+  sqlite.exec("ALTER TABLE database_backup_settings ADD COLUMN daily_enabled INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec("UPDATE database_backup_settings SET daily_enabled = automatic_enabled WHERE automatic_enabled = 1");
+}
+
+if (!hasColumn("database_backup_settings", "weekly_enabled")) {
+  sqlite.exec("ALTER TABLE database_backup_settings ADD COLUMN weekly_enabled INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec("UPDATE database_backup_settings SET weekly_enabled = automatic_enabled WHERE automatic_enabled = 1");
+}
+
+if (!hasColumn("database_backup_settings", "monthly_enabled")) {
+  sqlite.exec("ALTER TABLE database_backup_settings ADD COLUMN monthly_enabled INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec("UPDATE database_backup_settings SET monthly_enabled = automatic_enabled WHERE automatic_enabled = 1");
 }
 
 sqlite.exec(`
