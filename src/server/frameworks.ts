@@ -1,4 +1,5 @@
 import { readRepoFile } from "./github-connect.js";
+import { detectFrameworkFromProjectFiles } from "./framework-file-detectors.js";
 import { DATABASE_ICON_CATALOG, FRAMEWORK_ICON_CATALOG, type FrameworkIconCatalogEntry } from "./framework-icon-catalog.js";
 import { cachedFrameworkIconMeta } from "./framework-icons.js";
 
@@ -180,9 +181,37 @@ function dependencySet(packageJson: PackageJson) {
   ]);
 }
 
+function packageScriptText(packageJson: PackageJson) {
+  return Object.values(packageJson.scripts ?? {}).join(" ");
+}
+
 function candidateMatchesDeps(candidate: FrameworkIconCatalogEntry, deps: Set<string>) {
   if (candidate.dependencies?.some((dependency) => deps.has(dependency))) return true;
   return candidate.dependencyPrefixes?.some((prefix) => [...deps].some((dependency) => dependency.startsWith(prefix))) ?? false;
+}
+
+function catalogEntry(slug: string) {
+  return FRAMEWORK_ICON_CATALOG.find((candidate) => candidate.slug === slug) ?? null;
+}
+
+function packageRuntimeMatch(packageJsons: PackageJson[], options: FrameworkDetectionOptions = {}) {
+  const commands = detectionCommandSignature(options);
+
+  for (const packageJson of packageJsons) {
+    const deps = dependencySet(packageJson);
+    const scripts = packageScriptText(packageJson);
+    if (deps.has("@types/node") || /\bnode\b/i.test(scripts) || /\bnode\b/i.test(commands)) {
+      return catalogEntry("nodejs");
+    }
+    if (/\bbun\b/i.test(scripts) || /\bbun\b/i.test(commands)) {
+      return catalogEntry("bun");
+    }
+    if (/\bdeno\b/i.test(scripts) || /\bdeno\b/i.test(commands)) {
+      return catalogEntry("deno");
+    }
+  }
+
+  return null;
 }
 
 async function frameworkMetaFromCatalog(candidate: FrameworkIconCatalogEntry): Promise<FrameworkMeta> {
@@ -213,6 +242,13 @@ export async function detectFramework(repoFullName: null | string, branch: strin
   const cached = frameworkCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
+  const fileMatch = await detectFrameworkFromProjectFiles((path) => readRepoFile(repoFullName, branch, path), rootDir, options);
+  if (fileMatch) {
+    const framework = await frameworkMetaFromCatalog(fileMatch);
+    frameworkCache.set(key, { value: framework, expiresAt: Date.now() + CACHE_TTL_MS });
+    return framework;
+  }
+
   const packageJsons = await readPackageJsons(repoFullName, branch, rootDir, options);
   if (packageJsons.length === 0) {
     frameworkCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -224,12 +260,13 @@ export async function detectFramework(repoFullName: null | string, branch: strin
       .map((packageJson) => dependencySet(packageJson))
       .map((deps) => FRAMEWORK_ICON_CATALOG.find((candidate) => candidateMatchesDeps(candidate, deps)) ?? null)
       .find(Boolean) ?? null;
-  if (!match) {
+  const runtimeMatch = match ?? packageRuntimeMatch(packageJsons, options);
+  if (!runtimeMatch) {
     frameworkCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
     return null;
   }
 
-  const framework = await frameworkMetaFromCatalog(match);
+  const framework = await frameworkMetaFromCatalog(runtimeMatch);
   frameworkCache.set(key, { value: framework, expiresAt: Date.now() + CACHE_TTL_MS });
   return framework;
 }
