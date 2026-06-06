@@ -14,7 +14,7 @@ import { db, nowIso, sqlite } from "./db.js";
 import { restoreDatabaseDump } from "./database-restore.js";
 import { deleteR2Object, downloadR2ObjectToFile, uploadFileToR2 } from "./r2-storage.js";
 import { databaseBackups, databaseBackupSettings, envVars, services, type DatabaseBackup, type DatabaseBackupSettings } from "./schema.js";
-import { getSystemSettings } from "./system-settings.js";
+import { getSystemSettings, type SystemSettings } from "./system-settings.js";
 
 export type BackupStorageTarget = "disk" | "r2" | "disk+r2";
 export type BackupTrigger = "manual" | "daily" | "weekly" | "monthly";
@@ -109,8 +109,12 @@ function fileSha256(localPath: string) {
   return createHash("sha256").update(readFileSync(localPath)).digest("hex");
 }
 
-function defaultStorageTarget(): BackupStorageTarget {
-  return getSystemSettings().r2 ? "disk+r2" : "disk";
+function defaultStorageTarget(settings = getSystemSettings()): BackupStorageTarget {
+  return settings.r2 ? "disk+r2" : "disk";
+}
+
+function defaultAutomaticBackupsEnabled(settings = getSystemSettings()) {
+  return settings.databaseBackupsAutomaticEnabled === true;
 }
 
 function normalizeStorageTarget(value: string | null | undefined): BackupStorageTarget {
@@ -118,12 +122,13 @@ function normalizeStorageTarget(value: string | null | undefined): BackupStorage
 }
 
 function publicBackupSettings(row?: DatabaseBackupSettings | null): PublicDatabaseBackupSettings {
-  const fallback = defaultStorageTarget();
+  const settings = getSystemSettings();
+  const fallback = defaultStorageTarget(settings);
   const storedStorage = normalizeStorageTarget(row?.storage);
   const storage = fallback === "disk" && (storedStorage === "r2" || storedStorage === "disk+r2") ? "disk" : storedStorage;
   return {
     storage,
-    automaticEnabled: row?.automaticEnabled ?? true,
+    automaticEnabled: row?.automaticEnabled ?? false,
     defaultStorage: fallback,
     schedules: backupSchedules.map(({ trigger, intervalHours, retentionDays }) => ({ trigger, intervalHours, retentionDays }))
   };
@@ -251,6 +256,25 @@ export function getDatabaseBackupSettings(serviceId: string) {
   databaseContext(serviceId);
   const settings = db.select().from(databaseBackupSettings).where(eq(databaseBackupSettings.serviceId, serviceId)).get();
   return publicBackupSettings(settings);
+}
+
+export function initializeDatabaseBackupSettings(serviceId: string, settings: SystemSettings = getSystemSettings()) {
+  const existing = db.select().from(databaseBackupSettings).where(eq(databaseBackupSettings.serviceId, serviceId)).get();
+  if (existing) return publicBackupSettings(existing);
+
+  const timestamp = nowIso();
+  db.insert(databaseBackupSettings)
+    .values({
+      serviceId,
+      storage: defaultStorageTarget(settings),
+      automaticEnabled: defaultAutomaticBackupsEnabled(settings),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    })
+    .run();
+
+  const next = db.select().from(databaseBackupSettings).where(eq(databaseBackupSettings.serviceId, serviceId)).get();
+  return publicBackupSettings(next);
 }
 
 export function updateDatabaseBackupSettings(
