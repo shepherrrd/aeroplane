@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type FrameworkIconAsset } from "../api";
-import { ContrastIconTile } from "../components/ui/contrast-icon-tile";
+import { frameworkIconClassName } from "../components/ui/framework-icon-colors";
 import { StatusPill } from "../components/ui/primitives";
 
 function iconFallback(name: string) {
@@ -116,12 +116,18 @@ function IconPreview({ icon, tone }: { icon: FrameworkIconAsset; tone: "dark" | 
           : "grid h-16 place-items-center border border-zinc-300 bg-zinc-100 p-3"
       }
     >
-      <ContrastIconTile
-        src={icon.logoUrl}
-        alt={`${icon.name} on ${tone}`}
-        size={44}
-        fallback={<span className={isDark ? "font-mono text-xs text-zinc-400" : "font-mono text-xs text-zinc-600"}>{iconFallback(icon.name)}</span>}
-      />
+      {icon.logoUrl ? (
+        <img
+          src={icon.logoUrl}
+          alt={`${icon.name} on ${tone}`}
+          className={`max-h-11 max-w-full object-contain ${frameworkIconClassName(icon.slug, isDark)}`.trim()}
+          loading="lazy"
+        />
+      ) : (
+        <span className={isDark ? "font-mono text-xs text-zinc-400" : "font-mono text-xs text-zinc-600"}>
+          {iconFallback(icon.name)}
+        </span>
+      )}
     </div>
   );
 }
