@@ -8,6 +8,10 @@ export type DatabaseTable = {
   rowCount: number | null;
 };
 
+export type DatabaseSchema = {
+  name: string;
+};
+
 export type DatabaseColumn = {
   name: string;
   type: string;
