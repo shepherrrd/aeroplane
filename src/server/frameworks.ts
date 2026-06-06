@@ -214,6 +214,19 @@ function packageRuntimeMatch(packageJsons: PackageJson[], options: FrameworkDete
   return null;
 }
 
+function packageFrameworkMatch(packageJsons: PackageJson[], options: FrameworkDetectionOptions = {}) {
+  for (const packageJson of packageJsons) {
+    const deps = dependencySet(packageJson);
+    const dependencyMatch = FRAMEWORK_ICON_CATALOG.find((candidate) => candidateMatchesDeps(candidate, deps));
+    if (dependencyMatch) return dependencyMatch;
+
+    const runtimeMatch = packageRuntimeMatch([packageJson], options);
+    if (runtimeMatch) return runtimeMatch;
+  }
+
+  return null;
+}
+
 async function frameworkMetaFromCatalog(candidate: FrameworkIconCatalogEntry): Promise<FrameworkMeta> {
   const icon = await cachedFrameworkIconMeta(candidate);
   return {
@@ -255,12 +268,7 @@ export async function detectFramework(repoFullName: null | string, branch: strin
     return null;
   }
 
-  const match =
-    packageJsons
-      .map((packageJson) => dependencySet(packageJson))
-      .map((deps) => FRAMEWORK_ICON_CATALOG.find((candidate) => candidateMatchesDeps(candidate, deps)) ?? null)
-      .find(Boolean) ?? null;
-  const runtimeMatch = match ?? packageRuntimeMatch(packageJsons, options);
+  const runtimeMatch = packageFrameworkMatch(packageJsons, options);
   if (!runtimeMatch) {
     frameworkCache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
     return null;
