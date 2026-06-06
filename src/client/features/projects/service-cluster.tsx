@@ -9,7 +9,7 @@ export function ServiceCluster({ project }: { project: ProjectCard }) {
   return (
     <div className="border border-zinc-800/90 bg-zinc-950/55 p-2">
       <div className="flex min-h-[150px] items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-size-[18px_18px] p-5">
-        <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
+        <div className="flex max-w-[11.5rem] flex-wrap items-center justify-center gap-2">
           {previewServices.map((service) => (
             <div
               key={service.id}
