@@ -100,6 +100,7 @@ function buildPayload(form: OnboardingForm): OnboardingPayload {
           createBucket: form.r2CreateBucket,
         }
       : undefined,
+    databaseBackupsAutomaticEnabled: form.databaseBackupsAutomaticEnabled,
   };
 }
 
@@ -111,6 +112,7 @@ function buildRestartPayload(
     env: payload.env,
     rootDomain: payload.rootDomain,
     r2: payload.r2,
+    databaseBackupsAutomaticEnabled: payload.databaseBackupsAutomaticEnabled,
   };
 }
 
@@ -186,6 +188,8 @@ export function OnboardingPage() {
               result.settings.controlPlaneHostname ||
               current.controlPlaneHostname,
             rootDomain: wildcardRootDomain(result.settings.rootDomain),
+            databaseBackupsAutomaticEnabled:
+              result.settings.databaseBackupsAutomaticEnabled,
           }));
         })
         .catch(() => undefined);
