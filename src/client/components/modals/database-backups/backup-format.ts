@@ -43,7 +43,7 @@ export function defaultSettings(r2Connected: boolean): DatabaseBackupSettings {
   return {
     storage: r2Connected ? "disk+r2" : "disk",
     defaultStorage: r2Connected ? "disk+r2" : "disk",
-    automaticEnabled: true,
+    automaticEnabled: false,
     schedules: [
       { trigger: "daily", intervalHours: 24, retentionDays: 6 },
       { trigger: "weekly", intervalHours: 168, retentionDays: 31 },
