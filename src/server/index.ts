@@ -20,7 +20,8 @@ import { isPostgresFamilyDatabase } from "./database-engine.js";
 import { abortDeployment, allocateHostPort, containerNameForService, enqueueDeployment, getServiceById, removeServiceRuntime, startDeployWorker, staticSiteDirForService } from "./deploy.js";
 import { db, nowIso } from "./db.js";
 import { detectFramework } from "./frameworks.js";
-import { frameworkIconAsset, prewarmFrameworkIconCache } from "./framework-icons.js";
+import { frameworkIconAsset, frameworkIconUrl, prewarmFrameworkIconCache } from "./framework-icons.js";
+import { DATABASE_ICON_CATALOG, FRAMEWORK_ICON_CATALOG } from "./framework-icon-catalog.js";
 import { envExampleVariableSuggestions } from "./env-example-suggestions.js";
 import { resolveServiceEnv } from "./variable-resolver.js";
 import { getRailwayProjects, getRailwayProjectDetails, importRailwayProject } from "./railway-importer.js";
@@ -1149,6 +1150,27 @@ app.post("/api/auth/login", async (c) => {
 app.post("/api/auth/logout", (c) => {
   clearSession(c);
   return c.json({ ok: true });
+});
+
+app.get("/api/assets/framework-icons", (c) => {
+  return c.json({
+    icons: [
+      ...FRAMEWORK_ICON_CATALOG.map((entry) => ({
+        category: "framework",
+        logoUrl: frameworkIconUrl(entry.slug),
+        name: entry.name,
+        slug: entry.slug,
+        website: entry.website ?? null
+      })),
+      ...DATABASE_ICON_CATALOG.map((entry) => ({
+        category: "database",
+        logoUrl: frameworkIconUrl(entry.slug),
+        name: entry.name,
+        slug: entry.slug,
+        website: entry.website ?? null
+      }))
+    ]
+  });
 });
 
 app.get("/api/assets/framework-icons/:file", async (c) => {

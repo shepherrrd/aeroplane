@@ -5,6 +5,10 @@ export type Framework = {
   website: null | string;
 };
 
+export type FrameworkIconAsset = Framework & {
+  category: "database" | "framework";
+};
+
 export type ServiceRuntimeMode = "web" | "worker";
 
 export type Service = {
@@ -627,6 +631,7 @@ export const api = {
       body: JSON.stringify(body)
     }),
   system: () => request<{ tools: ToolCheck[] }>("/api/system"),
+  frameworkIcons: () => request<{ icons: FrameworkIconAsset[] }>("/api/assets/framework-icons"),
   githubStatus: () => request<GitHubStatus>("/api/github/status"),
   githubRepos: (query = "") => request<{ repos: GitHubRepo[] }>(`/api/github/repos?q=${encodeURIComponent(query)}`),
   githubBranches: (repoFullName: string) => request<{ branches: string[] }>(`/api/github/branches?repo=${encodeURIComponent(repoFullName)}`),

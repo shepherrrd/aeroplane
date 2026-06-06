@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Globe02Icon } from "@hugeicons/core-free-icons";
 import { ReactNode, forwardRef } from "react";
 import type { Framework } from "../../api";
+import { ContrastIconTile } from "./contrast-icon-tile";
 
 export function AppIcon({ icon, className = "", size = 18 }: { icon: unknown; className?: string; size?: number }) {
   return <HugeiconsIcon icon={icon as never} size={size} strokeWidth={1.7} className={className} />;
@@ -107,11 +108,10 @@ export function FrameworkMark({
 }) {
   if (framework?.logoUrl) {
     return (
-      <img
+      <ContrastIconTile
         src={framework.logoUrl}
         alt={framework.name}
-        style={{ width: size, height: size }}
-        className="object-contain shrink-0"
+        size={size}
       />
     );
   }

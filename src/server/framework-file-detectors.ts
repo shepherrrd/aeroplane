@@ -75,6 +75,11 @@ async function readProjectFiles(readFile: ProjectFileReader, rootDir: null | str
 
 const fileRules: FileRule[] = [
   {
+    slug: "fiber",
+    fileNames: ["go.mod"],
+    matches: (file) => /github\.com\/gofiber\/fiber\/v[0-9]+/i.test(file.content)
+  },
+  {
     slug: "spring",
     fileNames: ["pom.xml", "build.gradle", "build.gradle.kts"],
     matches: (file) => containsAny(file.content, [/spring-boot/i, /org\.springframework\.boot/i, /springframework\.boot/i])

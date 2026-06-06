@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SvgsRouteImport } from './routes/svgs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProjectSlugRouteImport } from './routes/$projectSlug'
 import { Route as IndexRouteImport } from './routes/index'
@@ -19,6 +20,11 @@ import { Route as ProjectSlugServiceSlugRouteImport } from './routes/$projectSlu
 import { Route as ProjectSlugServiceSlugIndexRouteImport } from './routes/$projectSlug/$serviceSlug/index'
 import { Route as ProjectSlugServiceSlugServiceTabRouteImport } from './routes/$projectSlug/$serviceSlug/$serviceTab'
 
+const SvgsRoute = SvgsRouteImport.update({
+  id: '/svgs',
+  path: '/svgs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$projectSlug': typeof ProjectSlugRouteWithChildren
   '/login': typeof LoginRoute
+  '/svgs': typeof SvgsRoute
   '/$projectSlug/$serviceSlug': typeof ProjectSlugServiceSlugRouteWithChildren
   '/onboarding/success': typeof OnboardingSuccessRoute
   '/$projectSlug/': typeof ProjectSlugIndexRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/svgs': typeof SvgsRoute
   '/onboarding/success': typeof OnboardingSuccessRoute
   '/$projectSlug': typeof ProjectSlugIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$projectSlug': typeof ProjectSlugRouteWithChildren
   '/login': typeof LoginRoute
+  '/svgs': typeof SvgsRoute
   '/$projectSlug/$serviceSlug': typeof ProjectSlugServiceSlugRouteWithChildren
   '/onboarding/success': typeof OnboardingSuccessRoute
   '/$projectSlug/': typeof ProjectSlugIndexRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$projectSlug'
     | '/login'
+    | '/svgs'
     | '/$projectSlug/$serviceSlug'
     | '/onboarding/success'
     | '/$projectSlug/'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/svgs'
     | '/onboarding/success'
     | '/$projectSlug'
     | '/onboarding'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$projectSlug'
     | '/login'
+    | '/svgs'
     | '/$projectSlug/$serviceSlug'
     | '/onboarding/success'
     | '/$projectSlug/'
@@ -137,12 +149,20 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ProjectSlugRoute: typeof ProjectSlugRouteWithChildren
   LoginRoute: typeof LoginRoute
+  SvgsRoute: typeof SvgsRoute
   OnboardingSuccessRoute: typeof OnboardingSuccessRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/svgs': {
+      id: '/svgs'
+      path: '/svgs'
+      fullPath: '/svgs'
+      preLoaderRoute: typeof SvgsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -244,6 +264,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ProjectSlugRoute: ProjectSlugRouteWithChildren,
   LoginRoute: LoginRoute,
+  SvgsRoute: SvgsRoute,
   OnboardingSuccessRoute: OnboardingSuccessRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
 }
