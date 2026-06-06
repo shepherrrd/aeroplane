@@ -13,6 +13,8 @@ Every example reads the `PORT` environment variable and falls back to `8080`.
 
 ```txt
 deployments-tests/
+  dotnet/
+    aspnet-core/
   go/
     vanilla/
     fiber/
@@ -33,6 +35,7 @@ deployments-tests/
 
 | Example | Command |
 | --- | --- |
+| .NET ASP.NET Core | `cd dotnet/aspnet-core && dotnet run` |
 | Go vanilla | `cd go/vanilla && go run .` |
 | Go Fiber | `cd go/fiber && go run .` |
 | Java vanilla | `cd java/vanilla && java server.java` |

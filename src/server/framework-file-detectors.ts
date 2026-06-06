@@ -24,6 +24,8 @@ type FileRule = {
 const candidateFileNames = [
   "go.mod",
   "Cargo.toml",
+  "app.csproj",
+  "server.csproj",
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
@@ -32,6 +34,8 @@ const candidateFileNames = [
   "main.py",
   "app.py",
   "server.py",
+  "program.cs",
+  "Program.cs",
   "server.java",
   "Main.java"
 ];
@@ -103,6 +107,16 @@ const fileRules: FileRule[] = [
     slug: "rust",
     fileNames: ["Cargo.toml"],
     matches: (file) => /\[package\]/i.test(file.content)
+  },
+  {
+    slug: "dotnet",
+    fileNames: ["app.csproj", "server.csproj"],
+    matches: (file) => containsAny(file.content, [/<Project[\s>]/i, /Microsoft\.NET\.Sdk/i])
+  },
+  {
+    slug: "dotnet",
+    fileNames: ["program.cs", "Program.cs"],
+    matches: (file) => containsAny(file.content, [/\bWebApplication\.CreateBuilder\b/i, /\bHost\.CreateDefaultBuilder\b/i])
   },
   {
     slug: "java",
