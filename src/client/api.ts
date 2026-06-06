@@ -91,6 +91,10 @@ export type DatabaseTable = {
   rowCount: number | null;
 };
 
+export type DatabaseSchema = {
+  name: string;
+};
+
 export type DatabaseColumn = {
   name: string;
   type: string;
@@ -122,6 +126,7 @@ export type DatabaseTablesResponse = {
   engine: string;
   supported: boolean;
   editable: boolean;
+  schemas: DatabaseSchema[];
   tables: DatabaseTable[];
   message?: string;
   runtimeState?: DatabaseRuntimeState;
@@ -191,6 +196,7 @@ export type SystemSettings = {
   rootDomain: string;
   controlPlaneHostname: string;
   deploymentConcurrency: number;
+  databaseBackupsAutomaticEnabled: boolean;
 };
 
 export type DatabaseBackup = {
@@ -337,6 +343,7 @@ export type OnboardingPayload = {
     secretAccessKey?: string;
     createBucket?: boolean;
   };
+  databaseBackupsAutomaticEnabled?: boolean;
 };
 
 export type EnvVar = {
@@ -737,7 +744,7 @@ export const api = {
       dnsStatus?: "active" | "pending";
       controlPlaneDnsStatus?: "active" | "pending";
     }>("/api/system/settings"),
-  updateSystemSettings: (body: { rootDomain?: string; controlPlaneHostname?: string; deploymentConcurrency?: number }) =>
+  updateSystemSettings: (body: { rootDomain?: string; controlPlaneHostname?: string; deploymentConcurrency?: number; databaseBackupsAutomaticEnabled?: boolean }) =>
     request<{ ok: boolean; settings: SystemSettings; caddy?: { ok: boolean; detail: string } }>("/api/system/settings", {
       method: "POST",
       body: JSON.stringify(body)
